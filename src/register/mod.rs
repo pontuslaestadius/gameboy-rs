@@ -1,7 +1,7 @@
 
 
 /// Private struct, as to only make it generate through the new() method.
-struct Registers {
+pub struct Registers {
     a: u8,
     b: u8,
     c: u8,
@@ -70,5 +70,22 @@ impl Registers {
     /// NOT IMPLEMENTED
     pub fn instruction(instruction: String) {
 
+    }
+}
+
+impl Flags {
+
+    // Private to the module.
+    fn new() -> Flags {
+        Flags {
+            sign: false,
+            zero: false,
+            five: false,
+            half_carry: false,
+            three: false,
+            parity_or_overflow: false,
+            subtract: false,
+            carry: false
+        }
     }
 }
