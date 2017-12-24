@@ -41,7 +41,7 @@ impl Rom {
 
 
 // Only works for 8bit binaries.
-struct SmartBinary {
+pub struct SmartBinary {
     zer: bool,
     one: bool,
     two: bool,
@@ -59,17 +59,17 @@ impl SmartBinary {
 
         let mut formatted_chars = formatted.chars();
 
-        let cnvt = |x| x == '1';
+        let o = |x| x == '1';
 
         SmartBinary {
-            zer: cnvt(formatted_chars.nth(0).unwrap()),
-            one: cnvt(formatted_chars.nth(1).unwrap()),
-            two: cnvt(formatted_chars.nth(2).unwrap()),
-            thr: cnvt(formatted_chars.nth(3).unwrap()),
-            fou: cnvt(formatted_chars.nth(4).unwrap()),
-            fiv: cnvt(formatted_chars.nth(5).unwrap()),
-            six: cnvt(formatted_chars.nth(6).unwrap()),
-            sev: cnvt(formatted_chars.nth(7).unwrap()),
+            zer: o(formatted_chars.nth(0).unwrap()),
+            one: o(formatted_chars.nth(1).unwrap()),
+            two: o(formatted_chars.nth(2).unwrap()),
+            thr: o(formatted_chars.nth(3).unwrap()),
+            fou: o(formatted_chars.nth(4).unwrap()),
+            fiv: o(formatted_chars.nth(5).unwrap()),
+            six: o(formatted_chars.nth(6).unwrap()),
+            sev: o(formatted_chars.nth(7).unwrap()),
         }
 
     }
@@ -125,4 +125,46 @@ pub fn prefix_table(byte: u8) {
 
 pub fn opcode_table(byte: u8) {
 
+}
+
+pub fn unprefixed_opcodes(binary: SmartBinary) {
+    let orev = |x: bool| {
+        if x {
+            1
+        } else {
+            0
+        }
+    };
+
+    // Gets the octal digit x.
+    let x = orev(binary.sev)*2 + orev(binary.six);
+
+    match x {
+        1 => 1,
+        2 => 2,
+        3 => 3,
+        4 => 4,
+        _ => panic!("Invalid X value: {}", x),
+    };
+}
+
+pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
+    let mut multiplier = 1;
+    let mut result: u8 = 0;
+
+    for item in list.iter().rev() {
+        result += item*multiplier;
+        multiplier = multiplier*2;
+    }
+    result
+}
+
+#[test]
+fn test_octal_digit() {
+    assert_eq!(octal_digit_from_binary_list(&[0,0,0,1]), 1);
+    assert_eq!(octal_digit_from_binary_list(&[1,0,0]), 4);
+    assert_eq!(octal_digit_from_binary_list(&[1,1,1,1,1,1,1]), 127);
+    assert_eq!(octal_digit_from_binary_list(&[1,1,1,1,1,1,0]), 126);
+    assert_eq!(octal_digit_from_binary_list(&[0,1,1,1,1,1,0]), 126-64);
+    
 }
