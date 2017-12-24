@@ -2,7 +2,6 @@ pub mod table;
 
 
 use std::fmt::Debug;
-use super::SmartBinary;
 
 /// Holds a decoded instruction.
 struct Instruction {
@@ -49,8 +48,27 @@ pub enum Opcode {
         // z == 6
             HALT,   // y == 6
 
-    INVALID(SmartBinary)
+    // x == 3
+        // z == 0
+        // z == 1
+            RET,    // p == 0
+            EXX,    // p == 1
+            JPHL,   // p == 2           JP HL
+            LDSPHL, // p == 3           LD SP, HL
 
+        // z == 2
+        // z == 3
+
+            JP(u16), // y == 0          JP nn
+        // z == 4
+        // z == 5
+        // z == 6
+        // z == 7
+            RST(u8), //                 RST y*8
+
+
+    // If it's an invalid opcode.
+    INVALID(table::SmartBinary)
 }
 
 impl Instruction {
