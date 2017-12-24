@@ -15,7 +15,15 @@ use std::fs::File;
 use std::char;
 use std::io::Error;
 use std::fmt;
+use instructions::Opcode;
 
+use std::fmt::Debug;
+
+use std::io;
+
+
+
+use std::fs::OpenOptions;
 
 struct Session {
     rom: Rom,
@@ -44,6 +52,7 @@ impl Rom {
 
 
 // Only works for 8bit binaries.
+#[derive(PartialEq)]
 pub struct SmartBinary {
     zer: bool,
     one: bool,
@@ -54,6 +63,29 @@ pub struct SmartBinary {
     six: bool,
     sev: bool,
 }
+
+impl fmt::Debug for SmartBinary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ft = |x| {
+            if x {
+                1
+            } else {
+                0
+            }
+        };
+        write!(f, "SmartBinary: [{},{},{},{},{},{},{},{}]",
+            ft(self.zer),
+            ft(self.one),
+            ft(self.two),
+            ft(self.thr),
+            ft(self.fou),
+            ft(self.fiv),
+            ft(self.six),
+            ft(self.sev)
+        )
+    }
+}
+
 
 impl SmartBinary {
     pub fn new(byte: u8) -> SmartBinary {
@@ -150,9 +182,9 @@ impl SmartBinary {
 
 }
 
-pub fn rom_exec(file: &mut File) {
+pub fn rom_exec(file: &mut File) -> Result<(), io::Error> {
     let mut buffer: Vec<u8> = Vec::new();
-    let rom_size = file.read_to_end(&mut buffer).unwrap();
+    let rom_size = file.read_to_end(&mut buffer)?;
 
     let rom = Rom {
         content: buffer
@@ -170,18 +202,34 @@ pub fn rom_exec(file: &mut File) {
 
     let mut bytes = 0;
 
-    while bytes <200 {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open("log.txt")?;
+
+    while bytes <2000 {
         bytes  += 1;
 
         let step = session.step();
 
         let sb = SmartBinary::new(step.clone());
 
-        println!("unprefixed_opcodes: {:?}", unprefixed_opcodes(sb));
+        let opcode = instructions::table::unprefixed_opcodes(sb);
+        let formatted_opcode = format!("{:?}", opcode);
+
+        match opcode {
+            Opcode::INVALID(_) => {
+                file.write_all(formatted_opcode.as_bytes());
+                file.write(b"\n");
+            }
+            _ => println!("{}", formatted_opcode)
+        }
 
         //println!("HEX: {:#X} U8: {} BINARY: {:b}", step, step, step);
 
-    }
+    };
+
+    Ok(())
 }
 
 pub fn prefix_table(byte: u8) {
@@ -192,48 +240,6 @@ pub fn opcode_table(byte: u8) {
 
 }
 
-
-pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> &'a str {
-
-    // Uses experimental splice patterning.
-    let [x,y,z,p,q] = binary.x_y_z_p_q();
-
-    println!("{},{},{},{},{}", x,y,z,p,q);
-
-    match x {
-        0 => {
-            match z {
-                0 => {
-                    match y {
-                        0 => "NOP",
-                        1 => "EX AF, AF'",
-                        2 => "undefined",
-                        3 => "undefined",
-                        4 => "undefined",
-                        5 => "undefined",
-                        6 => "undefined",
-                        7 => "undefined",
-                        _ => "Invalid Y value",
-                    }
-                }
-                1 => "undefined",
-                2 => "undefined",
-                3 => "undefined",
-                4 => "undefined",
-                5 => "undefined",
-                6 => "undefined",
-                7 => "undefined",
-                _ => "Invalid Z value",
-            }
-
-        }
-        1 => "undefined",
-        2 => "undefined",
-        3 => "undefined",
-        4 => "undefined",
-        _ => "Invalid X value",
-    }
-}
 
 pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
     let mut multiplier = 1;

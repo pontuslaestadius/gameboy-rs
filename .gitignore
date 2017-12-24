@@ -13,3 +13,6 @@ Cargo.lock
 
 # For intellij editor
 .idea
+
+# For the debug log
+log.txt
