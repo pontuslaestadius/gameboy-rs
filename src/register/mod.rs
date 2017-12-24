@@ -67,6 +67,15 @@ impl Registers {
     }
 
 
+    pub fn get_pc(&self) -> u16 {
+        self.pc
+    }
+
+    pub fn set_pc(&mut self, new: u16) {
+        self.pc = new;
+    }
+
+
     /// NOT IMPLEMENTED
     pub fn instruction(instruction: String) {
 
