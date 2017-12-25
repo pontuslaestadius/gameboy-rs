@@ -1,8 +1,5 @@
 pub mod table;
 
-
-use std::fmt::Debug;
-
 /// Holds a decoded instruction.
 struct Instruction {
 
@@ -70,16 +67,3 @@ pub enum Opcode {
     // If it's an invalid opcode.
     INVALID(table::SmartBinary)
 }
-
-impl Instruction {
-    pub fn new(string: String) -> Instruction {
-
-        // TODO match here.
-
-        //println!("Undefined instruction: '{}'", string);
-
-
-        Instruction {}
-    }
-}
-

@@ -8,5 +8,5 @@ fn main() {
 
     let mut f = File::open(filename).expect("file not found");
 
-    gameboyrs::rom_exec(&mut f);
+    let _ = gameboyrs::rom_exec(&mut f);
 }

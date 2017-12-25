@@ -18,7 +18,7 @@ pub struct Registers {
 /// Flag documentation gathered from:
 /// http://z80.info/z80sflag.htm
 /// And has only been stylized but with identical information.
-struct Flags {
+pub struct Flags {
 
     // (S) -> Set if the 2-complement value is negative (copy of MSB)
     sign: bool,
@@ -75,17 +75,12 @@ impl Registers {
         self.pc = new;
     }
 
-
-    /// NOT IMPLEMENTED
-    pub fn instruction(instruction: String) {
-
-    }
 }
 
 impl Flags {
 
     // Private to the module.
-    fn new() -> Flags {
+    pub fn new() -> Flags {
         Flags {
             sign: false,
             zero: false,

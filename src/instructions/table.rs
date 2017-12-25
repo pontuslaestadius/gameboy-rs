@@ -1,4 +1,3 @@
-#![feature(inclusive_range_syntax)]
 
 use instructions::Opcode;
 
@@ -7,12 +6,7 @@ use instructions::Opcode;
 /// Theory: http://www.z80.info/decoding.htm
 /// op code: http://searchdatacenter.techtarget.com/tip/Basic-disassembly-Decoding-the-opcode
 use std::io::prelude::*;
-use std::fs::File;
-use std::char;
-use std::io::Error;
 use std::fmt;
-
-use std::fmt::Debug;
 
 use std::io;
 use super::super::Session;
@@ -28,6 +22,11 @@ pub struct SmartBinary {
     fiv: bool,
     six: bool,
     sev: bool,
+}
+
+pub enum OpCodeData {
+    BYTE(u8), // Number of follow up bytes to be interpreted as an octal digit.
+    NONE, // The opcode has no following data connected to it.
 }
 
 impl fmt::Debug for SmartBinary {
@@ -160,24 +159,32 @@ impl SmartBinary {
 
 impl Session {
 
-    pub fn op_codes() {
-
+    pub fn op_code(&mut self) -> (Opcode, OpCodeData) {
+        self.unprefixed_opcodes()
     }
 
-    pub fn unprefixed_opcodes<'a>(&mut self) -> Opcode {
-        let step = self.step();
+
+    /// This should be called when it is known that it's a unprefixed opcode,
+    /// Returns a Opcode enum and a number of following bytes required for the action.
+    ///
+    pub fn unprefixed_opcodes<'a>(&mut self) -> (Opcode, OpCodeData) {
+        let step = self.step().unwrap();
 
         let binary: SmartBinary = SmartBinary::new(step.clone());
 
         // Uses experimental splice patterning.
         let [x,y,z,p,q] = binary.x_y_z_p_q();
 
+
+        // Used for notifiying caller it needs more data to be executed.
+        let mut opcodedata = OpCodeData::NONE;
+
         // Any commands we can't read, we use an invalid opcode enum.
         let undefined = || {
             Opcode::INVALID(binary)
         };
 
-        match x {
+        let opcode = match x {
             0 => {
 
                 match z {
@@ -255,7 +262,10 @@ impl Session {
 
                         match y {
 
-                            0 => Opcode::JP(0), // TODO fix
+                            0 => {
+                                opcodedata = OpCodeData::BYTE(2);
+                                Opcode::JP(0)
+                            },
 
                             _ => undefined(),
                         }
@@ -270,83 +280,71 @@ impl Session {
             }
 
             _ => undefined(),
-        }
+        };
+
+        (opcode, opcodedata)
     }
 
-    pub fn more_bytes_as_octal(&mut self, nr_bytes: usize) -> u16 {
-        let mut vec: Vec<u8> = Vec::new();
 
-        for _ in 0...nr_bytes {
-            vec.push(self.step().clone())
-        }
+}
 
-        let mut vec_smart_binaries: Vec<SmartBinary> = Vec::new();
+pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
 
-        for item in vec.iter() {
-            vec_smart_binaries.push(SmartBinary::new(item.clone()));
-        }
+    let mut vec_smart_binaries: Vec<SmartBinary> = Vec::new();
 
-
-        // This part only works for 2 or 1 byte.
-
-        if vec_smart_binaries.len() > 1 {
-            // Join the lists.
-
-            // two bytes.
-            let mut list: [u8; 16] = [
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0];
-
-            let list1: &SmartBinary = vec_smart_binaries.get(0).unwrap();
-            let list2: &SmartBinary = vec_smart_binaries.get(1).unwrap();
-
-            let orev = |x: bool| {
-                if x {
-                    1
-                } else {
-                    0
-                }
-            };
-
-
-            list[0] = orev(list1.zer);
-            list[1] = orev(list1.one);
-            list[2] = orev(list1.two);
-            list[3] = orev(list1.thr);
-            list[4] = orev(list1.fou);
-            list[5] = orev(list1.fiv);
-            list[6] = orev(list1.six);
-            list[7] = orev(list1.sev);
-
-            list[0+8] = orev(list2.zer);
-            list[1+8] = orev(list2.one);
-            list[2+8] = orev(list2.two);
-            list[3+8] = orev(list2.thr);
-            list[4+8] = orev(list2.fou);
-            list[5+8] = orev(list2.fiv);
-            list[6+8] = orev(list2.six);
-            list[7+8] = orev(list2.sev);
-
-            octal_digit_from_binary_list_u16(&list)
-
-        } else {
-
-            let list1: [u8; 8] = vec_smart_binaries.get(0).unwrap().as_list();
-
-            octal_digit_from_binary_list_u16(&list1)
-        }
+    for item in vec.iter() {
+        vec_smart_binaries.push(SmartBinary::new(*item.clone()));
     }
 
+
+    // This part only works for 2 or 1 byte.
+
+    let list1: &SmartBinary = vec_smart_binaries.get(0).unwrap();
+
+    if vec_smart_binaries.len() > 1 {
+        // Join the lists.
+
+        // two bytes.
+        let mut list: [u8; 16] = [
+            0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0];
+
+        let list2: &SmartBinary = vec_smart_binaries.get(1).unwrap();
+
+        let orev = |x: bool| {
+            if x {
+                1
+            } else {
+                0
+            }
+        };
+
+        list[0] = orev(list1.zer);
+        list[1] = orev(list1.one);
+        list[2] = orev(list1.two);
+        list[3] = orev(list1.thr);
+        list[4] = orev(list1.fou);
+        list[5] = orev(list1.fiv);
+        list[6] = orev(list1.six);
+        list[7] = orev(list1.sev);
+
+        list[0+8] = orev(list2.zer);
+        list[1+8] = orev(list2.one);
+        list[2+8] = orev(list2.two);
+        list[3+8] = orev(list2.thr);
+        list[4+8] = orev(list2.fou);
+        list[5+8] = orev(list2.fiv);
+        list[6+8] = orev(list2.six);
+        list[7+8] = orev(list2.sev);
+
+        Ok(octal_digit_from_binary_list_u16(&list))
+
+    } else {
+
+        Ok(octal_digit_from_binary_list_u16(&list1.as_list()))
+    }
 }
 
-
-pub fn prefix_table(byte: u8) {
-
-}
-
-pub fn opcode_table(byte: u8) {
-
-}
 
 
 pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
@@ -361,11 +359,11 @@ pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
 }
 
 pub fn octal_digit_from_binary_list_u16(list: &[u8]) -> u16 {
-    let mut multiplier = 1;
+    let mut multiplier: u32 = 1;
     let mut result: u16 = 0;
 
     for item in list.iter().rev() {
-        result += *item as u16 *multiplier;
+        result += *item as u16 *multiplier as u16;
         multiplier = multiplier*2;
     }
     result
