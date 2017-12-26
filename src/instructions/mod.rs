@@ -1,9 +1,6 @@
 pub mod table;
+use super::SmartBinary;
 
-/// Holds a decoded instruction.
-struct Instruction {
-
-}
 
 /// http://www.z80.info/decoding.htm
 #[derive(Debug)]
@@ -65,5 +62,5 @@ pub enum Opcode {
 
 
     // If it's an invalid opcode.
-    INVALID(table::SmartBinary)
+    INVALID(SmartBinary)
 }

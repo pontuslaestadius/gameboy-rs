@@ -10,18 +10,102 @@ pub mod instructions;
 use std::io::prelude::*;
 use std::fs::File;
 use std::io::Error;
-use instructions::Opcode;
 use instructions::table::*;
+use register::*;
+use instructions::*;
 
 use std::io;
 
 use std::fs::OpenOptions;
 
-struct Session {
+/// -----------------
+/// Structures
+/// -----------------
+///
+
+/// Binds together a rom, a register and the flags.
+/// Used for holding the entire 'session' of a emulation.
+pub struct Session {
     rom: Rom,
-    registers: register::Registers,
-    flags: register::Flags,
+    registers: Registers,
+    flags: Flags,
 }
+
+/// Holds an 8-bit binary.
+/// Values are stored as booleans because they hold the lowest amount of data in memory.
+#[derive(PartialEq)]
+pub struct SmartBinary {
+    zer: bool,
+    one: bool,
+    two: bool,
+    thr: bool,
+    fou: bool,
+    fiv: bool,
+    six: bool,
+    sev: bool,
+}
+
+/// Registers are used for virtual emulation storage.
+pub struct Registers {
+    a: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    f: u8,
+    h: u8,
+    l: u8,
+    sp: u16,
+    pc: u16,
+}
+
+/// Flag documentation gathered from:
+/// http://z80.info/z80sflag.htm
+/// And has only been stylized but with identical information.
+pub struct Flags {
+    // (S) -> Set if the 2-complement value is negative (copy of MSB)
+    sign: bool,
+    // (Z) -> Set if the value is zero
+    zero: bool,
+    // (F5) -> Copy of bit 5
+    five: bool,
+    // (H) -> Carry from bit 3 to bit 4
+    half_carry: bool,
+    // (F3) -> Copy of bit 3
+    three: bool,
+    // (P/V) ->
+    // Parity set if even number of bits set
+    // Overflow set if the 2-complement result does not fit in the register
+    parity_or_overflow: bool,
+    // (N) -> Set if the last operation was a subtraction
+    subtract: bool,
+    // (C) -> Set if the result did not fit in the register
+    carry: bool
+}
+
+/// Holds a decoded opcode instruction. They can be as either of the following:
+/// optional bytes are described using [optional].
+/// [prefix byte,]  opcode  [,displacement byte]  [,immediate data]
+/// - OR -
+/// two prefix bytes,  displacement byte,  opcode
+pub struct Instruction<'a> {
+    prefix: Option<Prefix>,
+    opcode: Opcode,
+    displacement: Option<i8>,
+    immediate: (Option<&'a SmartBinary>, Option<&'a SmartBinary>),
+}
+
+
+/// Holds the different types of prefixes that may exists before the opcode.
+/// These are hex representations.
+/// If the first byte read is any of these, it is always a prefix byte.
+pub enum Prefix {
+    CB,
+    DD,
+    ED,
+    FD,
+}
+
 
 
 impl Session {
@@ -116,8 +200,8 @@ fn load(file: &mut File) -> Result<Session, io::Error> {
 
     // Create the subsystem running the emulation.
     let rom = Rom::new(buffer);
-    let registers = register::Registers::new();
-    let flags = register::Flags::new();
+    let registers = Registers::new();
+    let flags = Flags::new();
 
     Ok(
         Session {

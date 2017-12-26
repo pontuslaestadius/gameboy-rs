@@ -1,51 +1,7 @@
+use super::Registers;
+use super::Flags;
 
 
-/// Private struct, as to only make it generate through the new() method.
-pub struct Registers {
-    a: u8,
-    b: u8,
-    c: u8,
-    d: u8,
-    e: u8,
-    f: u8,
-    h: u8,
-    l: u8,
-    sp: u16,
-    pc: u16,
-}
-
-
-/// Flag documentation gathered from:
-/// http://z80.info/z80sflag.htm
-/// And has only been stylized but with identical information.
-pub struct Flags {
-
-    // (S) -> Set if the 2-complement value is negative (copy of MSB)
-    sign: bool,
-
-    // (Z) -> Set if the value is zero
-    zero: bool,
-
-    // (F5) -> Copy of bit 5
-    five: bool,
-
-    // (H) -> Carry from bit 3 to bit 4
-    half_carry: bool,
-
-    // (F3) -> Copy of bit 3
-    three: bool,
-
-    // (P/V) ->
-    // Parity set if even number of bits set
-    // Overflow set if the 2-complement result does not fit in the register
-    parity_or_overflow: bool,
-
-    // (N) -> Set if the last operation was a subtraction
-    subtract: bool,
-
-    // (C) -> Set if the result did not fit in the register
-    carry: bool
-}
 
 
 impl Registers {

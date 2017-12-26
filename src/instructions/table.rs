@@ -10,19 +10,10 @@ use std::fmt;
 
 use std::io;
 use super::super::Session;
+use super::super::SmartBinary;
 
 // Only works for 8bit binaries.
-#[derive(PartialEq)]
-pub struct SmartBinary {
-    zer: bool,
-    one: bool,
-    two: bool,
-    thr: bool,
-    fou: bool,
-    fiv: bool,
-    six: bool,
-    sev: bool,
-}
+
 
 pub enum OpCodeData {
     BYTE(u8), // Number of follow up bytes to be interpreted as an octal digit.
@@ -156,137 +147,142 @@ impl SmartBinary {
 
 }
 
+/*
+[prefix byte,]  opcode  [,displacement byte]  [,immediate data]
+                    - OR -
+two prefix bytes,  displacement byte,  opcode
+*/
 
 impl Session {
 
     pub fn op_code(&mut self) -> (Opcode, OpCodeData) {
-        self.unprefixed_opcodes()
+
+        let byte = self.step().unwrap();
+        let binary: SmartBinary = SmartBinary::new(byte.clone());
+
+        unprefixed_opcodes(binary)
     }
-
-
-    /// This should be called when it is known that it's a unprefixed opcode,
-    /// Returns a Opcode enum and a number of following bytes required for the action.
-    ///
-    pub fn unprefixed_opcodes<'a>(&mut self) -> (Opcode, OpCodeData) {
-        let step = self.step().unwrap();
-
-        let binary: SmartBinary = SmartBinary::new(step.clone());
-
-        // Uses experimental splice patterning.
-        let [x,y,z,p,q] = binary.x_y_z_p_q();
-
-
-        // Used for notifiying caller it needs more data to be executed.
-        let mut opcodedata = OpCodeData::NONE;
-
-        // Any commands we can't read, we use an invalid opcode enum.
-        let undefined = || {
-            Opcode::INVALID(binary)
-        };
-
-        let opcode = match x {
-            0 => {
-
-                match z {
-
-                    0 => {
-
-                        match y {
-
-                            0 => Opcode::NOP,
-                            1 => Opcode::EXAF,
-                            2 => Opcode::DJNZ(0), // TODO fix proper value
-
-                            _ => undefined(),
-                        }
-                    },
-
-                    7 => {
-
-                        match y {
-
-                            0 => Opcode::RLCA,
-                            1 => Opcode::RRCA,
-                            2 => Opcode::RLA,
-                            3 => Opcode::RRA,
-                            4 => Opcode::DAA,
-                            5 => Opcode::CPL,
-                            6 => Opcode::SCF,
-                            7 => Opcode::CCF,
-
-                            _ => undefined(),
-                        }
-                    },
-
-                    _ => undefined(),
-                }
-            }
-
-            1 => {
-
-                match y {
-
-                    6 => Opcode::HALT,
-
-                    _ => undefined(),
-                }
-            }
-
-            3 => {
-
-                match z {
-
-                    1 => {
-
-                        match q {
-
-                            1 => {
-
-                                match p {
-
-                                    0 => Opcode::RET,
-                                    1 => Opcode::EXX,
-                                    2 => Opcode::JPHL, // TODO fix, should be JP(HL)
-                                    3 => Opcode::LDSPHL,
-
-                                    _ => undefined(),
-
-                                }
-                            }
-
-                            _ => undefined(),
-                        }
-                    }
-
-                    3 => {
-
-                        match y {
-
-                            0 => {
-                                opcodedata = OpCodeData::BYTE(2);
-                                Opcode::JP(0)
-                            },
-
-                            _ => undefined(),
-                        }
-                    }
-
-                    7 => {
-                        Opcode::RST(y*8)
-                    }
-
-                    _ => undefined(),
-                }
-            }
-
-            _ => undefined(),
-        };
-
-        (opcode, opcodedata)
-    }
-
 
 }
+
+
+/// This should be called when it is known that it's a unprefixed opcode,
+/// Returns a Opcode enum and a number of following bytes required for the action.
+///
+pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData) {
+
+    // Uses experimental splice patterning.
+    let [x,y,z,p,q] = binary.x_y_z_p_q();
+
+    // Used for notifiying caller it needs more data to be executed.
+    let mut opcodedata = OpCodeData::NONE;
+
+    // Any commands we can't read, we use an invalid opcode enum.
+    let undefined = || {
+        Opcode::INVALID(binary)
+    };
+
+    let opcode = match x {
+        0 => {
+
+            match z {
+
+                0 => {
+
+                    match y {
+
+                        0 => Opcode::NOP,
+                        1 => Opcode::EXAF,
+                        2 => Opcode::DJNZ(0), // TODO fix proper value
+
+                        _ => undefined(),
+                    }
+                },
+
+                7 => {
+
+                    match y {
+
+                        0 => Opcode::RLCA,
+                        1 => Opcode::RRCA,
+                        2 => Opcode::RLA,
+                        3 => Opcode::RRA,
+                        4 => Opcode::DAA,
+                        5 => Opcode::CPL,
+                        6 => Opcode::SCF,
+                        7 => Opcode::CCF,
+
+                        _ => undefined(),
+                    }
+                },
+
+                _ => undefined(),
+            }
+        }
+
+        1 => {
+
+            match y {
+
+                6 => Opcode::HALT,
+
+                _ => undefined(),
+            }
+        }
+
+        3 => {
+
+            match z {
+
+                1 => {
+
+                    match q {
+
+                        1 => {
+
+                            match p {
+
+                                0 => Opcode::RET,
+                                1 => Opcode::EXX,
+                                2 => Opcode::JPHL, // TODO fix, should be JP(HL)
+                                3 => Opcode::LDSPHL,
+
+                                _ => undefined(),
+
+                            }
+                        }
+
+                        _ => undefined(),
+                    }
+                }
+
+                3 => {
+
+                    match y {
+
+                        0 => {
+                            opcodedata = OpCodeData::BYTE(2);
+                            Opcode::JP(0)
+                        },
+
+                        _ => undefined(),
+                    }
+                }
+
+                7 => {
+                    Opcode::RST(y*8)
+                }
+
+                _ => undefined(),
+            }
+        }
+
+        _ => undefined(),
+    };
+
+    (opcode, opcodedata)
+}
+
 
 pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
 
