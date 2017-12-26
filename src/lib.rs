@@ -3,6 +3,7 @@
 
 pub mod register;
 pub mod instructions;
+pub mod share;
 
 /// Decoding reading material:
 /// Theory: http://www.z80.info/decoding.htm
@@ -13,108 +14,22 @@ use std::io::Error;
 use instructions::table::*;
 use register::*;
 use instructions::*;
+use share::*;
 
 use std::io;
 
 use std::fs::OpenOptions;
-
-/// -----------------
-/// Structures
-/// -----------------
-///
-
-/// Binds together a rom, a register and the flags.
-/// Used for holding the entire 'session' of a emulation.
-pub struct Session {
-    rom: Rom,
-    registers: Registers,
-    flags: Flags,
-}
-
-/// Holds an 8-bit binary.
-/// Values are stored as booleans because they hold the lowest amount of data in memory.
-#[derive(PartialEq)]
-pub struct SmartBinary {
-    zer: bool,
-    one: bool,
-    two: bool,
-    thr: bool,
-    fou: bool,
-    fiv: bool,
-    six: bool,
-    sev: bool,
-}
-
-/// Registers are used for virtual emulation storage.
-pub struct Registers {
-    a: u8,
-    b: u8,
-    c: u8,
-    d: u8,
-    e: u8,
-    f: u8,
-    h: u8,
-    l: u8,
-    sp: u16,
-    pc: u16,
-}
-
-/// Flag documentation gathered from:
-/// http://z80.info/z80sflag.htm
-/// And has only been stylized but with identical information.
-pub struct Flags {
-    // (S) -> Set if the 2-complement value is negative (copy of MSB)
-    sign: bool,
-    // (Z) -> Set if the value is zero
-    zero: bool,
-    // (F5) -> Copy of bit 5
-    five: bool,
-    // (H) -> Carry from bit 3 to bit 4
-    half_carry: bool,
-    // (F3) -> Copy of bit 3
-    three: bool,
-    // (P/V) ->
-    // Parity set if even number of bits set
-    // Overflow set if the 2-complement result does not fit in the register
-    parity_or_overflow: bool,
-    // (N) -> Set if the last operation was a subtraction
-    subtract: bool,
-    // (C) -> Set if the result did not fit in the register
-    carry: bool
-}
-
-/// Holds a decoded opcode instruction. They can be as either of the following:
-/// optional bytes are described using [optional].
-/// [prefix byte,]  opcode  [,displacement byte]  [,immediate data]
-/// - OR -
-/// two prefix bytes,  displacement byte,  opcode
-pub struct Instruction<'a> {
-    prefix: Option<Prefix>,
-    opcode: Opcode,
-    displacement: Option<i8>,
-    immediate: (Option<&'a SmartBinary>, Option<&'a SmartBinary>),
-}
-
-
-/// Holds the different types of prefixes that may exists before the opcode.
-/// These are hex representations.
-/// If the first byte read is any of these, it is always a prefix byte.
-pub enum Prefix {
-    CB,
-    DD,
-    ED,
-    FD,
-}
-
-
+use instructions::table::*;
+use register::*;
+use instructions::table::*;
 
 impl Session {
 
     /// Steps through to the next instruction to be read and returns the byte.
     pub fn step(&mut self) -> Result<&u8, io::Error> {
-        let old_pc = self.registers.get_pc();
-        let item = self.rom.get(old_pc)?;
-        self.registers.set_pc(old_pc +1);
+        let old_pc = self.registers.pc;
+        let item = self.rom.content.get(old_pc).unwrap();
+        self.registers.pc += 1;
         Ok(item)
     }
 
@@ -126,39 +41,21 @@ impl Session {
                 bytes.push(self.step()?);
             }
 
-            _ => { // Assumes 2 // TODO this is so ugly I cry everynight.
-                let old_pc = self.registers.get_pc();
-                let item1 = self.rom.get(old_pc)?;
-                let item2 = self.rom.get(old_pc +1)?;
+            2 => { // Assumes 2 // TODO this is so ugly I cry everynight.
+                let old_pc = self.registers.pc;
+                let item1 = self.rom.content.get(old_pc).unwrap();
+                let item2 = self.rom.content.get(old_pc +1).unwrap();
                 bytes.push(item1);
                 bytes.push(item2);
-                self.registers.set_pc(old_pc +2);
+                self.registers.pc += 2;
 
             }
+
+            _ => panic!("Sorry, only 1 and 2 count is implemented."),
 
         }
 
         Ok(bytes)
-    }
-}
-
-
-struct Rom {
-    content: Vec<u8>,
-}
-
-
-impl Rom {
-    pub fn new(content: Vec<u8>) -> Rom {
-        Rom {
-            content,
-        }
-    }
-
-    pub fn get(&self, index: u16) -> Result<&u8, io::Error> {
-        let item = self.content.get(index as usize)
-            .ok_or(io::Error::new(io::ErrorKind::NotFound, "out ot items."))?;
-        Ok(item)
     }
 }
 

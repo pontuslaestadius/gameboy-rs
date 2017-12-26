@@ -1,7 +1,4 @@
 
-use instructions::Opcode;
-
-
 /// Decoding reading material:
 /// Theory: http://www.z80.info/decoding.htm
 /// op code: http://searchdatacenter.techtarget.com/tip/Basic-disassembly-Decoding-the-opcode
@@ -9,16 +6,9 @@ use std::io::prelude::*;
 use std::fmt;
 
 use std::io;
-use super::super::Session;
-use super::super::SmartBinary;
+use super::super::share::*;
+use super::super::*;
 
-// Only works for 8bit binaries.
-
-
-pub enum OpCodeData {
-    BYTE(u8), // Number of follow up bytes to be interpreted as an octal digit.
-    NONE, // The opcode has no following data connected to it.
-}
 
 impl fmt::Debug for SmartBinary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -340,8 +330,6 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
         Ok(octal_digit_from_binary_list_u16(&list1.as_list()))
     }
 }
-
-
 
 pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
     let mut multiplier = 1;
