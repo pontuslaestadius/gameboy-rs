@@ -134,6 +134,8 @@ impl Rom {
 /// Holds the different types of prefixes that may exists before the opcode.
 /// These are hex representations.
 /// If the first byte read is any of these, it is always a prefix byte.
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub enum Prefix {
     CB,
     DD,

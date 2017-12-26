@@ -1,7 +1,6 @@
 #![feature(slice_patterns)]
 #![feature(inclusive_range_syntax)]
 
-pub mod register;
 pub mod instructions;
 pub mod share;
 
@@ -12,7 +11,6 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::io::Error;
 use instructions::table::*;
-use register::*;
 use instructions::*;
 use share::*;
 
@@ -20,40 +18,32 @@ use std::io;
 
 use std::fs::OpenOptions;
 use instructions::table::*;
-use register::*;
 use instructions::table::*;
 
 impl Session {
 
-    /// Steps through to the next instruction to be read and returns the byte.
-    pub fn step(&mut self) -> Result<&u8, io::Error> {
-        let old_pc = self.registers.pc;
-        let item = self.rom.content.get(old_pc).unwrap();
-        self.registers.pc += 1;
-        Ok(item)
-    }
-
     pub fn step_bytes(&mut self, count: u8) -> Result<Vec<&u8>, io::Error> {
         let mut bytes: Vec<&u8> = Vec::new();
+        let old_pc = self.registers.pc;
 
         match count {
             1 => {
-                bytes.push(self.step()?);
+                let item = self.rom.content.get(old_pc).unwrap();
+                bytes.push(item);
             }
 
             2 => { // Assumes 2 // TODO this is so ugly I cry everynight.
-                let old_pc = self.registers.pc;
                 let item1 = self.rom.content.get(old_pc).unwrap();
                 let item2 = self.rom.content.get(old_pc +1).unwrap();
                 bytes.push(item1);
                 bytes.push(item2);
-                self.registers.pc += 2;
 
             }
 
             _ => panic!("Sorry, only 1 and 2 count is implemented."),
 
         }
+        self.registers.pc += count as usize;
 
         Ok(bytes)
     }

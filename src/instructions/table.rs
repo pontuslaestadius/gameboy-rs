@@ -23,8 +23,8 @@ impl fmt::Debug for SmartBinary {
 
 impl SmartBinary {
     pub fn new(byte: u8) -> SmartBinary {
-        // TODO
 
+        // Formats it from a byte to a binary.
         let bytes = format!("{:b}", byte);
 
         let formatted = if bytes.len() != 8 {
@@ -147,10 +147,30 @@ impl Session {
 
     pub fn op_code(&mut self) -> (Opcode, OpCodeData) {
 
-        let byte = self.step().unwrap();
-        let binary: SmartBinary = SmartBinary::new(byte.clone());
+        let byte_vec = self.step_bytes(1).unwrap();
+        let byte = byte_vec.get(0).unwrap();
+        let binary: SmartBinary = SmartBinary::new(**byte);
+        
+        // Check for a prefix byte.
+        match check_prefix_opcodes(&binary) {
+            None => unprefixed_opcodes(binary),
+            x => unprefixed_opcodes(binary), // TODO replace.
+        }
+    }
 
-        unprefixed_opcodes(binary)
+}
+
+
+pub fn check_prefix_opcodes(binary: &SmartBinary) -> Option<Prefix> {
+    let byte = octal_digit_from_binary_list_u16(&binary.as_list());
+
+    // Check if it matches any of the prefixes in the enum.
+    match byte {
+        203 => Some(Prefix::CB),
+        221 => Some(Prefix::DD),
+        237 => Some(Prefix::ED),
+        253 => Some(Prefix::FD),
+        _ => None,
     }
 
 }
