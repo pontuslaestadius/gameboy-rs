@@ -9,16 +9,12 @@ pub mod share;
 /// op code: http://searchdatacenter.techtarget.com/tip/Basic-disassembly-Decoding-the-opcode
 use std::io::prelude::*;
 use std::fs::File;
-use std::io::Error;
-use instructions::table::*;
 use instructions::*;
 use share::*;
 
 use std::io;
 
 use std::fs::OpenOptions;
-use instructions::table::*;
-use instructions::table::*;
 
 impl Session {
 
@@ -83,7 +79,7 @@ pub fn rom_exec(mut file: &mut File) -> Result<(), io::Error> {
 fn load(file: &mut File) -> Result<Session, io::Error> {
 
     let mut buffer: Vec<u8> = Vec::new();
-    let rom_size = file.read_to_end(&mut buffer)?;
+    let _ = file.read_to_end(&mut buffer)?;
 
     // Create the subsystem running the emulation.
     let rom = Rom::new(buffer);
@@ -127,7 +123,7 @@ fn read_loop(mut session: Session) -> Result<Vec<String>, io::Error> {
 
         match opcodedata {
             OpCodeData::BYTE(x) => {
-                let mut bytes = session.step_bytes(x)?;
+                let bytes = session.step_bytes(x)?;
                 match opcode {
                     Opcode::JP(_) => opcode = Opcode::JP(bytes_as_octal(bytes)?),
                     _ => panic!("Invalid opcode, fix it ty."),

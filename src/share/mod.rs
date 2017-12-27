@@ -31,7 +31,7 @@ pub struct Registers {
     pub c: u8,
     pub d: u8,
     pub e: u8,
-    pub f: u8,
+    pub f: Flags,
     pub h: u8,
     pub l: u8,
     pub sp: u16,
@@ -94,7 +94,7 @@ impl Registers {
             c: 0,
             d: 0,
             e: 0,
-            f: 0,
+            f: Flags::new(),
             h: 0,
             l: 0,
             sp: 0,
@@ -206,6 +206,33 @@ pub enum Opcode {
     // z == 6
     // z == 7
     RST(u8), //                 RST y*8
+
+
+
+    /// ED-PREFIXED OPCODES
+
+    // x == 1
+        // z == 4
+            NEG,
+        // z == 5
+            // y == 1
+                RETI,
+            // y != 1
+                RETN,
+
+        // z == 7
+            // y == 0
+                LDIA, // LD I, A
+            // y == 1
+                LDRA, // LD R, A
+            // y == 2
+                LDAI, // LD A, I
+            // y == 3
+                LDAR, // LD A, R
+            // y == 4
+                RRD,
+            // y == 5
+                RLD,
 
 
     // If it's an invalid opcode.
