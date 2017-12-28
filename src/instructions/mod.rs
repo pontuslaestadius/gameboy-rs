@@ -219,7 +219,10 @@ impl Session {
             OpCodeData::BYTE(x) => {
                 let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
                 match opcode {
+                    // TODO find a better way to do this.
                     Opcode::JP(_) => opcode = Opcode::JP(bytes_as_octal(bytes)?),
+                    Opcode::CALL(_) => opcode = Opcode::CALL(bytes_as_octal(bytes)?),
+                    Opcode::ALU(y, _) => opcode = Opcode::ALU(y, bytes_as_octal(bytes)?),
                     _ => panic!("Invalid opcode, fix it ty."),
                 }
                 ()
@@ -342,7 +345,7 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
                     }
                 }
 
-                3 => {
+                3 =>
 
                     match y {
 
@@ -351,8 +354,27 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
                             Opcode::JP(0)
                         },
 
+                        6 => Opcode::DI,
+                        7 => Opcode::EI,
+
+                        _ => undefined(),
+                    },
+
+                5 => match q {
+                    1 => match p {
+                        0 => {
+                            opcodedata = OpCodeData::BYTE(2);
+                            Opcode::CALL(0)
+                        }
                         _ => undefined(),
                     }
+
+                     _ => undefined(),
+                }
+
+                6 => {
+                    opcodedata = OpCodeData::BYTE(1);
+                    Opcode::ALU(y,0)
                 }
 
                 7 => {

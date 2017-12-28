@@ -39,7 +39,7 @@ pub fn rom_exec(mut file: &mut File) -> Result<(), io::Error> {
     println!("rom size: {}", rom_size);
     println!("valid: {}", valid);
     println!("invalid: {}", invalid.len());
-    println!("valid: {}%", (valid as f64/invalid.len() as f64)*100.0);
+    println!("fault rate: {}%", (valid as f64/invalid.len() as f64)*100.0);
 
     Ok(())
 }

@@ -191,6 +191,7 @@ pub enum Opcode {
     HALT,   // y == 6
 
     // x == 3
+
     // z == 0
     // z == 1
     RET,    // p == 0
@@ -202,11 +203,17 @@ pub enum Opcode {
     // z == 3
 
     JP(u16), // y == 0          JP nn
+    DI,     // y == 6
+    EI,     // y == 7
     // z == 4
     // z == 5
-    // z == 6
-    // z == 7
-    RST(u8), //                 RST y*8
+    // q == 1
+    CALL(u16), // p == 0        CALL nn
+
+    ALU(u8, u16), // z == 6 alu[y] n
+
+    RST(u8), // z == 7          RST y*8
+
 
 
 
