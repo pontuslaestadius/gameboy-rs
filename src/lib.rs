@@ -16,36 +16,6 @@ use std::io;
 
 use std::fs::OpenOptions;
 
-impl Session {
-
-    pub fn step_bytes(&mut self, count: u8) -> Result<Vec<&u8>, io::Error> {
-        let mut bytes: Vec<&u8> = Vec::new();
-        let old_pc = self.registers.pc;
-
-        match count {
-            1 => {
-                let item = self.rom.content.get(old_pc).unwrap();
-                bytes.push(item);
-            }
-
-            2 => { // Assumes 2 // TODO this is so ugly I cry everynight.
-                let item1 = self.rom.content.get(old_pc).unwrap();
-                let item2 = self.rom.content.get(old_pc +1).unwrap();
-                bytes.push(item1);
-                bytes.push(item2);
-
-            }
-
-            _ => panic!("Sorry, only 1 and 2 count is implemented."),
-
-        }
-        self.registers.pc += count as usize;
-
-        Ok(bytes)
-    }
-}
-
-
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
 pub fn rom_exec(mut file: &mut File) -> Result<(), io::Error> {
@@ -119,20 +89,7 @@ fn read_loop(mut session: Session) -> Result<Vec<String>, io::Error> {
     let mut invalid: Vec<String> = Vec::new();
 
     for _ in 0..32000 { // TODO replace with a permanent loop.
-        let (mut opcode, opcodedata): (Opcode, OpCodeData) = session.op_code();
-
-        match opcodedata {
-            OpCodeData::BYTE(x) => {
-                let bytes = session.step_bytes(x)?;
-                match opcode {
-                    Opcode::JP(_) => opcode = Opcode::JP(bytes_as_octal(bytes)?),
-                    _ => panic!("Invalid opcode, fix it ty."),
-                }
-                ()
-            }
-
-            _ => (),
-        }
+        let opcode: Opcode = session.op_code()?;
 
         let formatted_opcode: String = format!("{:?}", opcode); // TODO remove.
         match opcode {

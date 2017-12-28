@@ -144,7 +144,8 @@ pub enum Prefix {
 }
 
 // TODO remove later.
-pub enum OpCodeData {
+pub enum OpCodeData<'a> {
+    REGISTER(&'a str), // Wants data from a register. Str specifies the register.
     BYTE(u8), // Number of follow up bytes to be interpreted as an octal digit.
     NONE, // The opcode has no following data connected to it.
 }
@@ -169,10 +170,10 @@ pub enum Opcode {
     // q == 2           ADD HL, rp[p]
 
 
-
-
-
-
+    // z == 4
+    INC(u8),    //                  INC r[y]
+    // z == 5
+    DEC(u8),    //                  DEC r[y]
 
     // z == 7
     RLCA,   // y == 0

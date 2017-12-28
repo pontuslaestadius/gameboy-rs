@@ -7,6 +7,40 @@ use std::io;
 use super::share::*;
 
 
+
+impl Registers {
+    /// Fetches the value given a string from the decode template provided here:
+    /// http://www.z80.info/decoding.htm
+    pub fn fetch(&self, code: &str) -> u16 {
+
+
+        // If it's a 8-bit or 16-bit fetch.
+
+        let result = match code.len() {
+
+            // This part is easy.
+            1 => {
+
+                match code {
+                    "A" => self.a,
+                    "B" => self.b,
+                    "C" => self.c,
+                    "D" => self.d,
+                    "E" => self.e,
+                    "H" => self.h,
+                    "L" => self.l,
+                    _ => panic!("Invalid register"),
+                }
+
+            }
+
+            _ => panic!("Invalid fetch length"),
+        };
+
+        result as u16
+    }
+}
+
 impl fmt::Debug for SmartBinary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
@@ -140,6 +174,20 @@ impl SmartBinary {
 two prefix bytes,  displacement byte,  opcode
 */
 
+
+pub fn step_bytes<'a>(rom: &'a Rom, pc: &mut usize, count: u8) -> Result<Vec<&'a u8>, io::Error> {
+    let mut bytes: Vec<&u8> = Vec::new();
+
+    for i in 0..count {
+        bytes.push(rom.content.get(*pc +i as usize).unwrap());
+    }
+
+
+    *pc = *pc +count as usize;
+
+    Ok(bytes)
+}
+
 impl Session {
 
     pub fn execute(&mut self) -> Result<(), io::Error> {
@@ -149,21 +197,38 @@ impl Session {
         Ok(())
     }
 
-    pub fn op_code(&mut self) -> (Opcode, OpCodeData) {
+    pub fn op_code(&mut self) -> Result<Opcode, io::Error> {
 
-        let byte_vec = self.step_bytes(1).unwrap();
+        // Read a single byte from the rom.
+        let byte_vec = step_bytes(&self.rom, &mut self.registers.pc, 1).unwrap();
+
         let byte = byte_vec.get(0).unwrap();
         let binary: SmartBinary = SmartBinary::new(**byte);
 
 
         // Check for a prefix byte.
-        match check_prefix_opcodes(&binary) {
+        let (mut opcode, opcodedata) = match check_prefix_opcodes(&binary) {
             None => unprefixed_opcodes(binary),
             Some(Prefix::CB) => unprefixed_opcodes(binary), // TODO replace.
             Some(Prefix::DD) => unprefixed_opcodes(binary), // TODO replace.
             Some(Prefix::ED) => ed_prefixed_opcodes(binary),
             Some(Prefix::FD) => unprefixed_opcodes(binary), // TODO replace.
+        };
+
+        match opcodedata {
+            OpCodeData::BYTE(x) => {
+                let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
+                match opcode {
+                    Opcode::JP(_) => opcode = Opcode::JP(bytes_as_octal(bytes)?),
+                    _ => panic!("Invalid opcode, fix it ty."),
+                }
+                ()
+            }
+
+            _ => (),
         }
+
+        Ok(opcode)
     }
 
 }
@@ -187,7 +252,7 @@ pub fn check_prefix_opcodes(binary: &SmartBinary) -> Option<Prefix> {
 /// This should be called when it is known that it's a unprefixed opcode,
 /// Returns a Opcode enum and a number of following bytes required for the action.
 ///
-pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData) {
+pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
 
     // Uses experimental splice patterning.
     let [x,y,z,p,q] = binary.x_y_z_p_q();
@@ -216,6 +281,9 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData) {
                         _ => undefined(),
                     }
                 },
+
+                4 => Opcode::INC(y),
+                5 => Opcode::DEC(y),
 
                 7 => {
 
@@ -304,7 +372,7 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData) {
 
 
 /// ED-PREFIXED OPCODES
-pub fn ed_prefixed_opcodes(binary: SmartBinary) -> (Opcode, OpCodeData) {
+pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
 
     // Uses experimental splice patterning.
     let [x,y,z,p,q] = binary.x_y_z_p_q();
