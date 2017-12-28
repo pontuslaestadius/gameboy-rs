@@ -308,15 +308,15 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
             }
         }
 
-        1 => {
+        1 => match y {
 
-            match y {
+            6 => Opcode::HALT,
 
-                6 => Opcode::HALT,
-
-                _ => undefined(),
-            }
+            // TODO should LD always be returned for this?
+            _ => Opcode::LD(DataTable::R(y), DataTable::R(z)),
         }
+
+        2 => Opcode::ALU_(y, DataTable::R(z)),
 
         3 => {
 

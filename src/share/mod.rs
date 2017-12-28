@@ -161,6 +161,7 @@ pub enum DataTable {
     RP(&'a str),
     RP2(&'a str),
     */
+    R(u8),
     CC(u8),
     /*
     ALU(&'a str),
@@ -205,8 +206,13 @@ pub enum Opcode {
     CCF,    // y == 7
 
     // x == 1
+    LD(DataTable, DataTable),   // r[y], r[z]
+
     // z == 6
     HALT,   // y == 6
+
+    // x == 2
+    ALU_(u8, DataTable), // alu[y] r[z]
 
     // x == 3
 

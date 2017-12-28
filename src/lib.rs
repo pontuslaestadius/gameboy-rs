@@ -9,7 +9,6 @@ pub mod share;
 /// op code: http://searchdatacenter.techtarget.com/tip/Basic-disassembly-Decoding-the-opcode
 use std::io::prelude::*;
 use std::fs::File;
-use instructions::*;
 use share::*;
 
 use std::io;
