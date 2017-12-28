@@ -254,7 +254,6 @@ pub fn check_prefix_opcodes(binary: &SmartBinary) -> Option<Prefix> {
 
 /// This should be called when it is known that it's a unprefixed opcode,
 /// Returns a Opcode enum and a number of following bytes required for the action.
-///
 pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
 
     // Uses experimental splice patterning.
@@ -322,6 +321,8 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
         3 => {
 
             match z {
+
+                0 => Opcode::RET_(DataTable::CC(y)),
 
                 1 => {
 

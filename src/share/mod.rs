@@ -150,6 +150,26 @@ pub enum OpCodeData<'a> {
     NONE, // The opcode has no following data connected to it.
 }
 
+
+
+/// Holds the data table opcodes use to fetch information.
+#[derive(Debug)]
+#[derive(PartialEq)]
+pub enum DataTable {
+    /*
+    R(&'a str),
+    RP(&'a str),
+    RP2(&'a str),
+    */
+    CC(u8),
+    /*
+    ALU(&'a str),
+    ROT(&'a str),
+    IM(&'a str),
+    BLI(&'a str),
+    */
+}
+
 /// http://www.z80.info/decoding.htm
 #[derive(Debug)]
 #[derive(PartialEq)]
@@ -169,7 +189,6 @@ pub enum Opcode {
     // q == 1           LD rp[p], nn
     // q == 2           ADD HL, rp[p]
 
-
     // z == 4
     INC(u8),    //                  INC r[y]
     // z == 5
@@ -185,7 +204,6 @@ pub enum Opcode {
     SCF,    // y == 6
     CCF,    // y == 7
 
-
     // x == 1
     // z == 6
     HALT,   // y == 6
@@ -193,6 +211,8 @@ pub enum Opcode {
     // x == 3
 
     // z == 0
+    RET_(DataTable), // RET cc[y]
+
     // z == 1
     RET,    // p == 0
     EXX,    // p == 1
