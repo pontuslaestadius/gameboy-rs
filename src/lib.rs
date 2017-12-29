@@ -87,7 +87,7 @@ fn read_loop(mut session: Session) -> Result<Vec<String>, io::Error> {
     // Counts the number of invalid op codes read.
     let mut invalid: Vec<String> = Vec::new();
 
-    for _ in 0..32000 { // TODO replace with a permanent loop.
+    while session.registers.pc < session.rom.content.len() { // TODO replace with a permanent loop.
         let opcode: Opcode = session.op_code()?;
 
         let formatted_opcode: String = format!("{:?}", opcode); // TODO remove.

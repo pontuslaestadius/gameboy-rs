@@ -53,39 +53,6 @@ impl fmt::Debug for SmartBinary {
 
 
 impl SmartBinary {
-    pub fn new(byte: u8) -> SmartBinary {
-
-        // Formats it from a byte to a binary.
-        let bytes = format!("{:b}", byte);
-
-        let formatted = if bytes.len() != 8 {
-            let mut extra = String::new();
-            for _ in bytes.len()...8  {
-                extra.push('0');
-            }
-            extra.push_str(bytes.as_str());
-            extra
-        } else {
-            bytes
-        };
-
-        let mut formatted_chars = formatted.chars();
-
-        let o = |x| x == '1';
-
-        // nth consumes the elements, so calling 0 on each one returns different elements:
-        // https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.nth
-        SmartBinary {
-            zer: o(formatted_chars.nth(0).unwrap()),
-            one: o(formatted_chars.nth(0).unwrap()),
-            two: o(formatted_chars.nth(0).unwrap()),
-            thr: o(formatted_chars.nth(0).unwrap()),
-            fou: o(formatted_chars.nth(0).unwrap()),
-            fiv: o(formatted_chars.nth(0).unwrap()),
-            six: o(formatted_chars.nth(0).unwrap()),
-            sev: o(formatted_chars.nth(0).unwrap()),
-        }
-    }
 
     pub fn get(&self, bit: u8) -> bool {
         match bit {
@@ -99,27 +66,6 @@ impl SmartBinary {
             7 => self.sev,
             _ => panic!("Invalid bit value: {}", bit)
         }
-    }
-
-    pub fn as_list(&self) -> [u8; 8] {
-        let ft = |x| {
-            if x {
-                1
-            } else {
-                0
-            }
-        };
-
-        [
-            ft(self.zer),
-            ft(self.one),
-            ft(self.two),
-            ft(self.thr),
-            ft(self.fou),
-            ft(self.fiv),
-            ft(self.six),
-            ft(self.sev)
-        ]
     }
 
     pub fn x_y_z_p_q(&self) -> [u8; 5] {
@@ -216,16 +162,25 @@ impl Session {
         };
 
         match opcodedata {
+
             OpCodeData::BYTE(x) => {
                 let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
                 match opcode {
                     // TODO find a better way to do this.
                     Opcode::JP(_) => opcode = Opcode::JP(bytes_as_octal(bytes)?),
                     Opcode::CALL(_) => opcode = Opcode::CALL(bytes_as_octal(bytes)?),
-                    Opcode::ALU(y, _) => opcode = Opcode::ALU(y, bytes_as_octal(bytes)?),
+                    Opcode::ALU(y, _) => opcode = Opcode::ALU(y, bytes_as_octal(bytes)? as u8),
                     _ => panic!("Invalid opcode, fix it ty."),
                 }
                 ()
+            }
+
+            OpCodeData::BYTESIGNED(x) => {
+                let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
+                match opcode {
+                    Opcode::JR_(d, _) => opcode = Opcode::JR_(d, bytes_as_octal_signed(bytes)? as i8),
+                    _ => panic!("Invalid opcode, fix it ty2."),
+                }
             }
 
             _ => (),
@@ -278,7 +233,11 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
 
                         0 => Opcode::NOP,
                         1 => Opcode::EXAF,
-                        2 => Opcode::DJNZ(0), // TODO fix proper value
+                        //2 => Opcode::DJNZ(0), // TODO fix proper value
+                        4...7 => {
+                            opcodedata = OpCodeData::BYTESIGNED(1);
+                            Opcode::JR_(DataTable::CC(y-4), 0)
+                        }
 
                         _ => undefined(),
                     }
@@ -444,6 +403,15 @@ pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) 
     (opcode, opcodedata)
 }
 
+pub fn bytes_as_octal_signed(mut vec: Vec<&u8>) -> Result<i16, io::Error> {
+    let signed = vec.remove(0);
+    let octal = bytes_as_octal(vec)?;
+    Ok(
+        match *signed {
+        0 => octal as i16,
+        _ => octal as i16 *-1
+    })
+}
 
 
 pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
@@ -503,6 +471,8 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
     }
 }
 
+
+
 pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
     let mut multiplier = 1;
     let mut result: u8 = 0;
@@ -523,6 +493,34 @@ pub fn octal_digit_from_binary_list_u16(list: &[u8]) -> u16 {
         multiplier = multiplier*2;
     }
     result
+}
+
+pub fn octal_digit_from_binary_list_i16(list: &[u8]) -> i16 {
+    let mut result: i16 = 0;
+
+    let mut iter = list.iter();
+    let signed = iter.next().unwrap();
+
+    let signed_clear: i16 = match *signed {
+        0 => 1,
+        _ => -1
+    };
+
+    let two: i16 = 2;
+    for (index, item) in iter.rev().enumerate() {
+        result += *item as i16 *two.pow(index as u32);
+    }
+    result*signed_clear
+}
+
+#[test]
+fn test_octal_digit_from_binary_list_i16() {
+
+    assert_eq!(octal_digit_from_binary_list_i16(&[1,0,0,1,1,1,0,0]), -100);
+    assert_eq!(octal_digit_from_binary_list_i16(&[0,1,1,0,0,1,0,0]), 100);
+    assert_eq!(octal_digit_from_binary_list_i16(&[0,0,0,0,0,0,0,1]), 1);
+    assert_eq!(octal_digit_from_binary_list_i16(&[1,1,1,1,1,1,1,1]), -1);
+
 }
 
 
