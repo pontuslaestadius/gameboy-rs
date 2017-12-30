@@ -47,10 +47,26 @@ mod share {
     fn test_as_i8() {
         let smartbinary0 = SmartBinary::new(0);
         let smartbinary1 = SmartBinary::new(1);
+        let smartbinary8 = SmartBinary::new(8);
         let smartbinary100 = SmartBinary::new(100);
 
+        let smartbinaryn1 = SmartBinary {
+            zer: true,
+            one: true,
+            two: true,
+            thr: true,
+            fou: true,
+            fiv: true,
+            six: true,
+            sev: true,
+        };
+
         assert_eq!(smartbinary0.as_i8(), 0 as i8);
-        assert_eq!(smartbinary100.as_i8(), 100 as i8);
         assert_eq!(smartbinary1.as_i8(), 1 as i8);
+        assert_eq!(smartbinary8.as_i8(), 8 as i8);
+        assert_eq!(smartbinary100.as_i8(), 100 as i8);
+
+
+        assert_eq!(smartbinaryn1.as_i8(), -1 as i8);
     }
 }

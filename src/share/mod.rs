@@ -133,6 +133,7 @@ impl SmartBinary {
         // Formats it from a byte to a binary.
         let bytes = format!("{:b}", byte);
 
+
         let formatted = if bytes.len() != 8 {
             let mut extra = String::new();
             for _ in bytes.len()...8  {
@@ -143,6 +144,8 @@ impl SmartBinary {
         } else {
             bytes
         };
+
+        println!("byte: {}, bytes: {}", byte, formatted);
 
         let mut formatted_chars = formatted.chars();
 
@@ -186,7 +189,16 @@ impl SmartBinary {
 
     /// Returns the SmartBinary as a u8.
     pub fn as_u8(&self) -> u8 {
-        panic!("TODO u8");
+        let list = self.as_list();
+
+        let mut multiplier: u32 = 1;
+        let mut result: u16 = 0;
+
+        for i in 0..list.len() {
+            result += list[i] as u16 *multiplier as u16;
+            multiplier = multiplier*2;
+        }
+        result as u8
     }
 
     // Will weight self over other.
@@ -198,60 +210,56 @@ impl SmartBinary {
     pub fn as_i8(&self) -> i8 {
         // Get the list if bits.
         let mut list = self.as_list();
+        println!("{:?}", list);
 
-        println!("before: {:?}", list);
-
-        let rev = |x| {
-            if x == 1 {
-                0
-            } else {
-                1
-            }
-        };
-
-        // make a flipped list.
-        let mut list: [u8; 8] = [
-        rev(list[0]),
-        rev(list[1]),
-        rev(list[2]),
-        rev(list[3]),
-        rev(list[4]),
-        rev(list[5]),
-        rev(list[6]),
-        rev(list[7]),
-        ];
-
-        // Add one to it.
-        for ind in 1...list.len() {
-            let i = list.len()-ind;
-
-            if list[i] == 0 {
-                list[i] = 1;
-                break;
-
-            } else { // list[i] == 1
-                list[i] = 0;
-            }
-
-        }
-
-        let mut result: i8 = 0;
-        let mut multiplier: i32 = 1;
-
-        for i in 0..list.len() {
-            //println!("add: {},{}*{}", i, list[i], multiplier/2);
-            result += list[i] as i8 *(multiplier/2) as i8;
-            multiplier = multiplier*2;
-        }
-
-        println!("after: {:?}", list);
-
-
+        // If it is a negative or not.
         if list[0] == 1 {
+
+            // Turns 1 to 0 and 0 to 1.
+            let rev = |x| {
+                if x == 1 {0} else {1}
+            };
+
+            // make a flipped list.
+            let mut list: [u8; 8] = [
+                rev(list[0]),
+                rev(list[1]),
+                rev(list[2]),
+                rev(list[3]),
+                rev(list[4]),
+                rev(list[5]),
+                rev(list[6]),
+                rev(list[7]),
+            ];
+
+            // Add one to it.
+            for ind in 1...list.len() {
+                let i = list.len()-ind;
+
+                if list[i] == 0 {
+                    list[i] = 1;
+                    break;
+                } else { // list[i] == 1
+                    list[i] = 0;
+                }
+
+            }
+
+            let mut result: i8 = 0;
+            let mut multiplier: i32 = 1;
+
+            for i in 0..list.len() {
+                //println!("add: {},{}*{}", i, list[i], multiplier/2);
+                result += list[i] as i8 *(multiplier/2) as i8;
+                multiplier = multiplier*2;
+            }
+
             -result
+            // Positive
         } else {
-            result
+            self.as_u8() as i8
         }
+
     }
 
 }
