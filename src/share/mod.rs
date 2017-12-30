@@ -184,6 +184,82 @@ impl SmartBinary {
         ]
     }
 
+    /// Returns the SmartBinary as a u8.
+    pub fn as_u8(&self) -> u8 {
+        panic!("TODO u8");
+    }
+
+    // Will weight self over other.
+    pub fn as_u16(&self, other: &SmartBinary) -> u8 {
+        panic!("TODO u16");
+    }
+
+    // Converts it to an octal. Using two's complement
+    pub fn as_i8(&self) -> i8 {
+        // Get the list if bits.
+        let mut list = self.as_list();
+
+        let rev = |x| {
+            if x == 1 {
+                0
+            } else {
+                1
+            }
+        };
+
+
+
+        // make a flipped list.
+        let list: [u8; 8] = [
+        rev(list[0]),
+        rev(list[1]),
+        rev(list[2]),
+        rev(list[3]),
+        rev(list[4]),
+        rev(list[5]),
+        rev(list[6]),
+        rev(list[7]),
+        ];
+
+        println!("{:?}", list);
+
+
+        // Add one to it.
+        for i in 0..list.len() {
+
+            let item: &u8 = &list[i];
+
+
+
+            if *item == 0 {
+                list[i] == 1;
+                break;
+
+            } else { // list[i] == 1
+                list[i] == 0;
+            }
+
+            println!("list i: {}", list[i]);
+
+        }
+
+        let mut result: i8 = 0;
+        let mut multiplier: i32 = 1;
+
+        for i in 0..list.len() {
+
+            //println!("add: {},{}*{}", i, list[i], multiplier/2);
+            result += list[i] as i8 *(multiplier/2) as i8;
+            multiplier = multiplier*2;
+        }
+
+        if list[0] == 1 {
+            -result
+        } else {
+            result
+        }
+    }
+
 }
 
 /// -----------------

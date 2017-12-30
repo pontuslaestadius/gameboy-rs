@@ -54,6 +54,18 @@ impl fmt::Debug for SmartBinary {
 
 impl SmartBinary {
 
+    /// Flips the values from 1 to 0 and 0 to 1.
+    pub fn flip(&mut self) {
+        self.zer = !self.zer;
+        self.one = !self.one;
+        self.two = !self.two;
+        self.thr = !self.thr;
+        self.fou = !self.fou;
+        self.fiv = !self.fiv;
+        self.six = !self.six;
+        self.sev = !self.sev;
+    }
+
     pub fn get(&self, bit: u8) -> bool {
         match bit {
             0 => self.zer,
@@ -513,38 +525,3 @@ pub fn octal_digit_from_binary_list_i16(list: &[u8]) -> i16 {
     result*signed_clear
 }
 
-#[test]
-fn test_octal_digit_from_binary_list_i16() {
-
-    assert_eq!(octal_digit_from_binary_list_i16(&[1,0,0,1,1,1,0,0]), -100);
-    assert_eq!(octal_digit_from_binary_list_i16(&[0,1,1,0,0,1,0,0]), 100);
-    assert_eq!(octal_digit_from_binary_list_i16(&[0,0,0,0,0,0,0,1]), 1);
-    assert_eq!(octal_digit_from_binary_list_i16(&[1,1,1,1,1,1,1,1]), -1);
-
-}
-
-
-#[test]
-fn test_octal_digit() {
-    assert_eq!(octal_digit_from_binary_list(&[0,0,0,1]), 1);
-    assert_eq!(octal_digit_from_binary_list(&[1,0,0]), 4);
-    assert_eq!(octal_digit_from_binary_list(&[1,1,1,1,1,1,1]), 127);
-    assert_eq!(octal_digit_from_binary_list(&[1,1,1,1,1,1,0]), 126);
-    assert_eq!(octal_digit_from_binary_list(&[0,1,1,1,1,1,0]), 126-64);
-
-}
-
-#[test]
-fn test_octal_digit_u16() {
-    assert_eq!(octal_digit_from_binary_list_u16(&[0,0,0,1]), 1);
-    assert_eq!(octal_digit_from_binary_list_u16(&[1,0,0]), 4);
-    assert_eq!(octal_digit_from_binary_list_u16(&[1,1,1,1,1,1,1]), 127);
-    assert_eq!(octal_digit_from_binary_list_u16(&[1,1,1,1,1,1,0]), 126);
-    assert_eq!(octal_digit_from_binary_list_u16(&[0,1,1,1,1,1,0]), 126-64);
-
-    assert_eq!(octal_digit_from_binary_list_u16(&[1,1,1,1,1,1,1,1]), 255);
-    assert_eq!(octal_digit_from_binary_list_u16(&[1,1,1,1,1,1,1,1,1]), 511);
-    assert_eq!(octal_digit_from_binary_list_u16(&[1,1,1,1,1,1,1,1,1,1]), 1023);
-    assert_eq!(octal_digit_from_binary_list_u16(&[1,1,1,1,1,1,1,1,1,1,1]), 2047);
-
-}
