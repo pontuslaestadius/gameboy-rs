@@ -199,6 +199,8 @@ impl SmartBinary {
         // Get the list if bits.
         let mut list = self.as_list();
 
+        println!("before: {:?}", list);
+
         let rev = |x| {
             if x == 1 {
                 0
@@ -207,10 +209,8 @@ impl SmartBinary {
             }
         };
 
-
-
         // make a flipped list.
-        let list: [u8; 8] = [
+        let mut list: [u8; 8] = [
         rev(list[0]),
         rev(list[1]),
         rev(list[2]),
@@ -221,25 +221,17 @@ impl SmartBinary {
         rev(list[7]),
         ];
 
-        println!("{:?}", list);
-
-
         // Add one to it.
-        for i in 0..list.len() {
+        for ind in 1...list.len() {
+            let i = list.len()-ind;
 
-            let item: &u8 = &list[i];
-
-
-
-            if *item == 0 {
-                list[i] == 1;
+            if list[i] == 0 {
+                list[i] = 1;
                 break;
 
             } else { // list[i] == 1
-                list[i] == 0;
+                list[i] = 0;
             }
-
-            println!("list i: {}", list[i]);
 
         }
 
@@ -247,11 +239,13 @@ impl SmartBinary {
         let mut multiplier: i32 = 1;
 
         for i in 0..list.len() {
-
             //println!("add: {},{}*{}", i, list[i], multiplier/2);
             result += list[i] as i8 *(multiplier/2) as i8;
             multiplier = multiplier*2;
         }
+
+        println!("after: {:?}", list);
+
 
         if list[0] == 1 {
             -result

@@ -49,8 +49,8 @@ mod share {
         let smartbinary1 = SmartBinary::new(1);
         let smartbinary100 = SmartBinary::new(100);
 
-        assert_eq!(smartbinary100.as_i8(), 100 as i8);
         assert_eq!(smartbinary0.as_i8(), 0 as i8);
+        assert_eq!(smartbinary100.as_i8(), 100 as i8);
         assert_eq!(smartbinary1.as_i8(), 1 as i8);
     }
 }
