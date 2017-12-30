@@ -133,10 +133,10 @@ impl SmartBinary {
         // Formats it from a byte to a binary.
         let bytes = format!("{:b}", byte);
 
-
+        // If it is less than 8bit length, add trailing zeros.
         let formatted = if bytes.len() != 8 {
             let mut extra = String::new();
-            for _ in bytes.len()...8  {
+            for _ in bytes.len()..8  {
                 extra.push('0');
             }
             extra.push_str(bytes.as_str());
@@ -145,10 +145,7 @@ impl SmartBinary {
             bytes
         };
 
-        println!("byte: {}, bytes: {}", byte, formatted);
-
         let mut formatted_chars = formatted.chars();
-
         let o = |x| x == '1';
 
         // nth consumes the elements, so calling 0 on each one returns different elements:
@@ -189,16 +186,7 @@ impl SmartBinary {
 
     /// Returns the SmartBinary as a u8.
     pub fn as_u8(&self) -> u8 {
-        let list = self.as_list();
-
-        let mut multiplier: u32 = 1;
-        let mut result: u16 = 0;
-
-        for i in 0..list.len() {
-            result += list[i] as u16 *multiplier as u16;
-            multiplier = multiplier*2;
-        }
-        result as u8
+        panic!("TODO u8")
     }
 
     // Will weight self over other.
@@ -210,7 +198,7 @@ impl SmartBinary {
     pub fn as_i8(&self) -> i8 {
         // Get the list if bits.
         let mut list = self.as_list();
-        println!("{:?}", list);
+        println!("as i8: {:?}", list);
 
         // If it is a negative or not.
         if list[0] == 1 {
@@ -245,19 +233,28 @@ impl SmartBinary {
 
             }
 
-            let mut result: i8 = 0;
-            let mut multiplier: i32 = 1;
+            let mut multiplier: u32 = 1;
+            let mut result: i16 = 0;
 
-            for i in 0..list.len() {
-                //println!("add: {},{}*{}", i, list[i], multiplier/2);
-                result += list[i] as i8 *(multiplier/2) as i8;
+            for i in 1..list.len() {
+                let i = list.len() -i;
+                result += list[i] as i16 *multiplier as i16;
                 multiplier = multiplier*2;
             }
 
-            -result
+            -result as i8
             // Positive
         } else {
-            self.as_u8() as i8
+
+            let mut multiplier: u32 = 1;
+            let mut result: i16 = 0;
+
+            for i in 1..list.len() {
+                let i = list.len() -i;
+                result += list[i] as i16 *multiplier as i16;
+                multiplier = multiplier*2;
+            }
+            result as i8
         }
 
     }
