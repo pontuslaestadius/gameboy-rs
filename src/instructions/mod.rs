@@ -190,7 +190,7 @@ impl Session {
             OpCodeData::BYTESIGNED(x) => {
                 let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
                 match opcode {
-                    Opcode::JR_(d, _) => opcode = Opcode::JR_(d, bytes_as_octal_signed(bytes)? as i8),
+                    Opcode::JR_(d, _) => opcode = Opcode::JR_(d, bytes_as_octal_signed(bytes)),
                     _ => panic!("Invalid opcode, fix it ty2."),
                 }
             }
@@ -415,14 +415,13 @@ pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) 
     (opcode, opcodedata)
 }
 
-pub fn bytes_as_octal_signed(mut vec: Vec<&u8>) -> Result<i16, io::Error> {
-    let signed = vec.remove(0);
-    let octal = bytes_as_octal(vec)?;
-    Ok(
-        match *signed {
-        0 => octal as i16,
-        _ => octal as i16 *-1
-    })
+pub fn bytes_as_octal_signed(mut vec: Vec<&u8>) -> i8 {
+    if (vec.len() > 1) {
+        panic!("octal signed len > 1 not implemented");
+    }
+
+    let smartbinary = SmartBinary::new(**vec.get(0).unwrap());
+    smartbinary.as_i8()
 }
 
 

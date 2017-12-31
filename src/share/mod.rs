@@ -162,14 +162,29 @@ impl SmartBinary {
         }
     }
 
+
+    /// Creates a smartbinary from a list.
+    pub fn from_list(list: [u8; 8]) -> SmartBinary {
+        let ft = |x| {
+            if x == 1 {true} else {false}
+        };
+
+        SmartBinary {
+            zer: ft(list[0]),
+            one: ft(list[1]),
+            two: ft(list[2]),
+            thr: ft(list[3]),
+            fou: ft(list[4]),
+            fiv: ft(list[5]),
+            six: ft(list[6]),
+            sev: ft(list[7]),
+        }
+    }
+
     /// Returns a binary list of a SmartBinary.
     pub fn as_list(&self) -> [u8; 8] {
         let ft = |x| {
-            if x {
-                1
-            } else {
-                0
-            }
+            if x {1} else {0}
         };
 
         [
@@ -181,6 +196,27 @@ impl SmartBinary {
             ft(self.fiv),
             ft(self.six),
             ft(self.sev)
+        ]
+    }
+
+    /// make a flipped list.
+    pub fn as_list_flipped(&self) -> [u8; 8] {
+        let list = self.as_list();
+        // Turns 1 to 0 and 0 to 1.
+        let rev = |x| {
+            if x == 1 {0} else {1}
+        };
+
+
+        [
+            rev(list[0]),
+            rev(list[1]),
+            rev(list[2]),
+            rev(list[3]),
+            rev(list[4]),
+            rev(list[5]),
+            rev(list[6]),
+            rev(list[7]),
         ]
     }
 
@@ -200,25 +236,13 @@ impl SmartBinary {
         let mut list = self.as_list();
         println!("as i8: {:?}", list);
 
+        let mut neg = 1;
+
+
         // If it is a negative or not.
         if list[0] == 1 {
 
-            // Turns 1 to 0 and 0 to 1.
-            let rev = |x| {
-                if x == 1 {0} else {1}
-            };
-
-            // make a flipped list.
-            let mut list: [u8; 8] = [
-                rev(list[0]),
-                rev(list[1]),
-                rev(list[2]),
-                rev(list[3]),
-                rev(list[4]),
-                rev(list[5]),
-                rev(list[6]),
-                rev(list[7]),
-            ];
+            list = self.as_list_flipped();
 
             // Add one to it.
             for ind in 1...list.len() {
@@ -233,30 +257,22 @@ impl SmartBinary {
 
             }
 
-            let mut multiplier: u32 = 1;
-            let mut result: i16 = 0;
-
-            for i in 1..list.len() {
-                let i = list.len() -i;
-                result += list[i] as i16 *multiplier as i16;
-                multiplier = multiplier*2;
-            }
-
-            -result as i8
+            neg = -1;
             // Positive
         } else {
 
-            let mut multiplier: u32 = 1;
-            let mut result: i16 = 0;
-
-            for i in 1..list.len() {
-                let i = list.len() -i;
-                result += list[i] as i16 *multiplier as i16;
-                multiplier = multiplier*2;
-            }
-            result as i8
         }
 
+        let mut multiplier: u32 = 1;
+        let mut result: i16 = 0;
+
+        for i in 1..list.len() {
+            let i = list.len() -i;
+            result += list[i] as i16 *multiplier as i16;
+            multiplier = multiplier*2;
+        }
+
+        neg*result as i8
     }
 
 }
