@@ -68,6 +68,8 @@ pub struct Flags {
 /// [prefix byte,]  opcode  [,displacement byte]  [,immediate data]
 /// - OR -
 /// two prefix bytes,  displacement byte,  opcode
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Instruction<'a> {
     pub prefix: Option<Prefix>,
     pub opcode: Opcode,
@@ -76,6 +78,8 @@ pub struct Instruction<'a> {
 }
 
 /// Holds the content of the rom, As to load it in to memory.
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Rom {
     pub content: Vec<u8>,
 }
@@ -146,56 +150,56 @@ impl SmartBinary {
         };
 
         let mut formatted_chars = formatted.chars();
-        let o = |x| x == '1';
+        let convert_u8b = |x| x == '1';
 
         // nth consumes the elements, so calling 0 on each one returns different elements:
         // https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.nth
         SmartBinary {
-            zer: o(formatted_chars.nth(0).unwrap()),
-            one: o(formatted_chars.nth(0).unwrap()),
-            two: o(formatted_chars.nth(0).unwrap()),
-            thr: o(formatted_chars.nth(0).unwrap()),
-            fou: o(formatted_chars.nth(0).unwrap()),
-            fiv: o(formatted_chars.nth(0).unwrap()),
-            six: o(formatted_chars.nth(0).unwrap()),
-            sev: o(formatted_chars.nth(0).unwrap()),
+            zer: convert_u8b(formatted_chars.nth(0).unwrap()),
+            one: convert_u8b(formatted_chars.nth(0).unwrap()),
+            two: convert_u8b(formatted_chars.nth(0).unwrap()),
+            thr: convert_u8b(formatted_chars.nth(0).unwrap()),
+            fou: convert_u8b(formatted_chars.nth(0).unwrap()),
+            fiv: convert_u8b(formatted_chars.nth(0).unwrap()),
+            six: convert_u8b(formatted_chars.nth(0).unwrap()),
+            sev: convert_u8b(formatted_chars.nth(0).unwrap()),
         }
     }
 
 
     /// Creates a smartbinary from a list.
     pub fn from_list(list: [u8; 8]) -> SmartBinary {
-        let ft = |x| {
+        let convert_u8b = |x| {
             if x == 1 {true} else {false}
         };
 
         SmartBinary {
-            zer: ft(list[0]),
-            one: ft(list[1]),
-            two: ft(list[2]),
-            thr: ft(list[3]),
-            fou: ft(list[4]),
-            fiv: ft(list[5]),
-            six: ft(list[6]),
-            sev: ft(list[7]),
+            zer: convert_u8b(list[0]),
+            one: convert_u8b(list[1]),
+            two: convert_u8b(list[2]),
+            thr: convert_u8b(list[3]),
+            fou: convert_u8b(list[4]),
+            fiv: convert_u8b(list[5]),
+            six: convert_u8b(list[6]),
+            sev: convert_u8b(list[7]),
         }
     }
 
     /// Returns a binary list of a SmartBinary.
     pub fn as_list(&self) -> [u8; 8] {
-        let ft = |x| {
+        let convert = |x| {
             if x {1} else {0}
         };
 
         [
-            ft(self.zer),
-            ft(self.one),
-            ft(self.two),
-            ft(self.thr),
-            ft(self.fou),
-            ft(self.fiv),
-            ft(self.six),
-            ft(self.sev)
+            convert(self.zer),
+            convert(self.one),
+            convert(self.two),
+            convert(self.thr),
+            convert(self.fou),
+            convert(self.fiv),
+            convert(self.six),
+            convert(self.sev)
         ]
     }
 
@@ -203,20 +207,19 @@ impl SmartBinary {
     pub fn as_list_flipped(&self) -> [u8; 8] {
         let list = self.as_list();
         // Turns 1 to 0 and 0 to 1.
-        let rev = |x| {
+        let flip = |x| {
             if x == 1 {0} else {1}
         };
 
-
         [
-            rev(list[0]),
-            rev(list[1]),
-            rev(list[2]),
-            rev(list[3]),
-            rev(list[4]),
-            rev(list[5]),
-            rev(list[6]),
-            rev(list[7]),
+            flip(list[0]),
+            flip(list[1]),
+            flip(list[2]),
+            flip(list[3]),
+            flip(list[4]),
+            flip(list[5]),
+            flip(list[6]),
+            flip(list[7]),
         ]
     }
 
@@ -230,48 +233,46 @@ impl SmartBinary {
         panic!("TODO u16");
     }
 
-    // Converts it to an octal. Using two's complement
+    /// Converts it to an octal. Using two's complement:
+    /// https://en.wikipedia.org/wiki/Two%27s_complement
     pub fn as_i8(&self) -> i8 {
         // Get the list if bits.
         let mut list = self.as_list();
-        println!("as i8: {:?}", list);
-
         let mut neg = 1;
-
 
         // If it is a negative or not.
         if list[0] == 1 {
-
+            // Flip the listf from 1 to 0 and 0 to 1.
             list = self.as_list_flipped();
-
             // Add one to it.
+            // Ignore sign flag.
             for ind in 1...list.len() {
+                // Start from the end of the list with LSB:
                 let i = list.len()-ind;
 
+                // If it's a 1 we change it to 0 and carry it to the next.
+                // If it is a 0 we set the value and finish.
                 if list[i] == 0 {
                     list[i] = 1;
                     break;
-                } else { // list[i] == 1
+                } else {
                     list[i] = 0;
                 }
-
             }
-
+            // Set it to be a negative multiplier.
             neg = -1;
-            // Positive
-        } else {
-
         }
 
+        // Multiple the remaining 7 bits to form a unsigned char.
         let mut multiplier: u32 = 1;
         let mut result: i16 = 0;
-
         for i in 1..list.len() {
             let i = list.len() -i;
             result += list[i] as i16 *multiplier as i16;
             multiplier = multiplier*2;
         }
 
+        // Multiply the result with the negative.
         neg*result as i8
     }
 
@@ -294,6 +295,8 @@ pub enum Prefix {
 }
 
 // TODO remove later.
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub enum OpCodeData<'a> {
     REGISTER(&'a str), // Wants data from a register. Str specifies the register.
     BYTE(u8), // Number of follow up bytes to be interpreted as an octal digit.

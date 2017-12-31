@@ -148,14 +148,25 @@ pub fn step_bytes<'a>(rom: &'a Rom, pc: &mut usize, count: u8) -> Result<Vec<&'a
 
 impl Session {
 
-    pub fn execute(&mut self) -> Result<(), io::Error> {
+    pub fn execute(&mut self, instruction: Instruction) -> Result<(), io::Error> {
 
+        let formatted_opcode: String = format!("{:?}", instruction.opcode); // TODO remove.
 
+        match instruction.opcode {
 
+            // Loops for invalid opcodes and stores them in the log file.
+            Opcode::INVALID(_) => {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "Invalid execution"));
+            }
+
+            _ => println!("{}", formatted_opcode) // TODO replace with execution.
+        }
+
+        // TODO
         Ok(())
     }
 
-    pub fn op_code(&mut self) -> Result<Opcode, io::Error> {
+    pub fn fetch_next(&mut self) -> Result<Instruction, io::Error> {
 
         // Read a single byte from the rom.
         let byte_vec = step_bytes(&self.rom, &mut self.registers.pc, 1).unwrap();
@@ -163,42 +174,52 @@ impl Session {
         let byte = byte_vec.get(0).unwrap();
         let binary: SmartBinary = SmartBinary::new(**byte);
 
-
         // Check for a prefix byte.
-        let (mut opcode, opcodedata) = match check_prefix_opcodes(&binary) {
-            None => unprefixed_opcodes(binary),
-            Some(Prefix::CB) => unprefixed_opcodes(binary), // TODO replace.
-            Some(Prefix::DD) => unprefixed_opcodes(binary), // TODO replace.
-            Some(Prefix::ED) => ed_prefixed_opcodes(binary),
-            Some(Prefix::FD) => unprefixed_opcodes(binary), // TODO replace.
+        let (prefix, (mut opcode, opcodedata)) = match check_prefix_opcodes(&binary) {
+            None => (None, unprefixed_opcodes(binary)),
+            Some(Prefix::CB) => (Some(Prefix::CB), unprefixed_opcodes(binary)), // TODO replace.
+            Some(Prefix::DD) => (Some(Prefix::DD), unprefixed_opcodes(binary)), // TODO replace.
+            Some(Prefix::ED) => (Some(Prefix::ED), ed_prefixed_opcodes(binary)),
+            Some(Prefix::FD) => (Some(Prefix::FD), unprefixed_opcodes(binary)), // TODO replace.
         };
 
         match opcodedata {
 
             OpCodeData::BYTE(x) => {
                 let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
-                match opcode {
+                opcode = match opcode {
                     // TODO find a better way to do this.
-                    Opcode::JP(_) => opcode = Opcode::JP(bytes_as_octal(bytes)?),
-                    Opcode::CALL(_) => opcode = Opcode::CALL(bytes_as_octal(bytes)?),
-                    Opcode::ALU(y, _) => opcode = Opcode::ALU(y, bytes_as_octal(bytes)? as u8),
-                    _ => panic!("Invalid opcode, fix it ty."),
-                }
-                ()
+                    Opcode::JP(_) => Opcode::JP(bytes_as_octal(bytes)?),
+                    Opcode::CALL(_) => Opcode::CALL(bytes_as_octal(bytes)?),
+                    Opcode::CALL_(dt, _) => Opcode::CALL_(dt, bytes_as_octal(bytes)?),
+                    Opcode::ALU(y, _) => Opcode::ALU(y, bytes_as_octal(bytes)? as u8),
+                    _ => panic!("Invalid opcode for bytes: {:?}", opcode),
+                };
             }
 
             OpCodeData::BYTESIGNED(x) => {
                 let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
-                match opcode {
-                    Opcode::JR_(d, _) => opcode = Opcode::JR_(d, bytes_as_octal_signed(bytes)),
-                    _ => panic!("Invalid opcode, fix it ty2."),
-                }
+                opcode = match opcode {
+                    Opcode::JR_(d, _) => Opcode::JR_(d, bytes_as_octal_signed(bytes)),
+                    Opcode::JR(_) => Opcode::JR(bytes_as_octal_signed(bytes)),
+                    Opcode::DJNZ(_) => Opcode::DJNZ(bytes_as_octal_signed(bytes)),
+                    _ => panic!("Invalid opcode for bytesigned: {:?}", opcode),
+                };
             }
 
+            // It can be no opcodedata, so this is perfectly acceptable.
             _ => (),
         }
 
-        Ok(opcode)
+
+        let instruction = Instruction {
+            prefix: prefix,
+            opcode: opcode,
+            displacement: None,
+            immediate: (None, None)
+        };
+
+        Ok(instruction)
     }
 
 }
@@ -245,7 +266,17 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
 
                         0 => Opcode::NOP,
                         1 => Opcode::EXAF,
-                        //2 => Opcode::DJNZ(0), // TODO fix proper value
+
+                        2 => {
+                            opcodedata = OpCodeData::BYTESIGNED(1);
+                            Opcode::DJNZ(0)
+                        }
+
+                        3 => {
+                            opcodedata = OpCodeData::BYTESIGNED(1);
+                            Opcode::JR(0)
+                        }
+
                         4...7 => {
                             opcodedata = OpCodeData::BYTESIGNED(1);
                             Opcode::JR_(DataTable::CC(y-4), 0)
@@ -331,6 +362,12 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
 
                         _ => undefined(),
                     },
+
+
+                4 => {
+                    opcodedata = OpCodeData::BYTE(2);
+                    Opcode::CALL_(DataTable::CC(y), 0)
+                }
 
                 5 => match q {
                     1 => match p {

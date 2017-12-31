@@ -66,14 +66,14 @@ fn load(file: &mut File) -> Result<Session, io::Error> {
 
 
 /// Writes the given vec to the given path.
-fn log(path: &str, vec: &Vec<String>) -> Result<(), io::Error> {
+fn log(path: &str, vec: &Vec<Instruction>) -> Result<(), io::Error> {
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
         .open(path)?;
 
     for item in vec.iter() {
-        file.write_all(item.as_bytes())?;
+        file.write_all(format!("{:?}", item).as_bytes())?;
         file.write(b"\n")?;
     }
     Ok(())
@@ -83,23 +83,16 @@ fn log(path: &str, vec: &Vec<String>) -> Result<(), io::Error> {
 /// Reads op code forever and is the main loop for the emulation.
 /// Will only return anything if it is either done emulating, or
 /// if an error occured that made it panic.
-fn read_loop(mut session: Session) -> Result<Vec<String>, io::Error> {
+fn read_loop<'a>(mut session: Session) -> Result<Vec<Instruction<'a>>, io::Error> {
 
     // Counts the number of invalid op codes read.
-    let mut invalid: Vec<String> = Vec::new();
+    let mut invalid: Vec<Instruction> = Vec::new();
 
     while session.registers.pc < session.rom.content.len() { // TODO replace with a permanent loop.
-        let opcode: Opcode = session.op_code()?;
-
-        let formatted_opcode: String = format!("{:?}", opcode); // TODO remove.
-        match opcode {
-
-            // Loops for invalid opcodes and stores them in the log file.
-            Opcode::INVALID(_) => {
-                invalid.push(formatted_opcode);
-            }
-
-            _ => println!("{}", formatted_opcode) // TODO replace with execution.
+        let instruction: Instruction = session.fetch_next()?;
+        match session.execute(instruction) {
+            Ok(()) => (),
+            _ => invalid.push(instruction)
         }
     }
 
