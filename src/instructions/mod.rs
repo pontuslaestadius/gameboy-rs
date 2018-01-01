@@ -1,43 +1,13 @@
 /// Decoding reading material:
 /// Theory: http://www.z80.info/decoding.htm
 /// op code: http://searchdatacenter.techtarget.com/tip/Basic-disassembly-Decoding-the-opcode
+pub mod execute;
+
 use std::fmt;
 
 use std::io;
 use super::share::*;
 
-impl Registers {
-    /// Fetches the value given a string from the decode template provided here:
-    /// http://www.z80.info/decoding.htm
-    pub fn fetch(&self, code: &str) -> u16 {
-
-
-        // If it's a 8-bit or 16-bit fetch.
-
-        let result = match code.len() {
-
-            // This part is easy.
-            1 => {
-
-                match code {
-                    "A" => self.a,
-                    "B" => self.b,
-                    "C" => self.c,
-                    "D" => self.d,
-                    "E" => self.e,
-                    "H" => self.h,
-                    "L" => self.l,
-                    _ => panic!("Invalid register"),
-                }
-
-            }
-
-            _ => panic!("Invalid fetch length"),
-        };
-
-        result as u16
-    }
-}
 
 impl fmt::Debug for SmartBinary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -145,24 +115,6 @@ pub fn step_bytes<'a>(rom: &'a Rom, pc: &mut usize, count: u8) -> Result<Vec<&'a
 }
 
 impl Session {
-
-    pub fn execute(&mut self, instruction: Instruction) -> Result<(), Instruction> {
-
-        let formatted_opcode: String = format!("{:?}", instruction.opcode); // TODO remove.
-
-        match instruction.opcode {
-
-            // Loops for invalid opcodes and stores them in the log file.
-            Opcode::INVALID(_) => {
-                return Err(instruction);
-            }
-
-            _ => println!("{}", formatted_opcode) // TODO replace with execution.
-        }
-
-        // TODO
-        Ok(())
-    }
 
     pub fn fetch_next(&mut self) -> Result<Instruction, io::Error> {
 

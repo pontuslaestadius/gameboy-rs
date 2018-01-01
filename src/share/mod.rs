@@ -25,15 +25,10 @@ pub struct SmartBinary {
 }
 
 /// Registers are used for virtual emulation storage.
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Registers {
-    pub a: u8,
-    pub b: u8,
-    pub c: u8,
-    pub d: u8,
-    pub e: u8,
-    pub f: Flags,
-    pub h: u8,
-    pub l: u8,
+    pub mem: [u8; 8],
     pub sp: u16,
     // Program counter, used for pointing at the next instruction to be read.
     pub pc: usize,
@@ -42,6 +37,8 @@ pub struct Registers {
 /// Flag documentation gathered from:
 /// http://z80.info/z80sflag.htm
 /// And has only been stylized but with identical information.
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Flags {
     // (S) -> Set if the 2-complement value is negative (copy of MSB)
     pub sign: bool,
@@ -91,16 +88,10 @@ pub struct Rom {
 
 impl Registers {
 
+    /// Returns a new register.
     pub fn new() -> Registers {
         Registers {
-            a: 0,
-            b: 0,
-            c: 0,
-            d: 0,
-            e: 0,
-            f: Flags::new(),
-            h: 0,
-            l: 0,
+            mem: [0,0,0,0,0,0,0,0],
             sp: 0,
             pc: 0,
         }
@@ -276,6 +267,25 @@ impl SmartBinary {
         neg*result as i8
     }
 
+}
+
+
+impl DataTable {
+
+    /// Returns the incapsluted data inside the datatable.
+    pub fn get(&self) -> u8 {
+        match *self {
+            DataTable::RP(d) => d,
+            DataTable::RP2(d) => d,
+            DataTable::R(d) => d,
+            DataTable::CC(d) => d,
+            DataTable::ALU(d) => d,
+            DataTable::ROT(d) => d,
+            DataTable::IM(d) => d,
+            DataTable::BLI(d) => d,
+
+        }
+    }
 }
 
 /// -----------------
