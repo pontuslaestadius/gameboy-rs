@@ -6,8 +6,6 @@ use std::fmt;
 use std::io;
 use super::share::*;
 
-
-
 impl Registers {
     /// Fetches the value given a string from the decode template provided here:
     /// http://www.z80.info/decoding.htm
@@ -177,10 +175,10 @@ impl Session {
         // Check for a prefix byte.
         let (prefix, (mut opcode, opcodedata)) = match check_prefix_opcodes(&binary) {
             None => (None, unprefixed_opcodes(binary)),
-            Some(Prefix::CB) => (Some(Prefix::CB), unprefixed_opcodes(binary)), // TODO replace.
-            Some(Prefix::DD) => (Some(Prefix::DD), unprefixed_opcodes(binary)), // TODO replace.
+            Some(Prefix::CB) => (Some(Prefix::CB), cb_prefixed_opcodes(binary)),
+            Some(Prefix::DD) => (Some(Prefix::DD), dd_prefixed_opcodes(binary)),
             Some(Prefix::ED) => (Some(Prefix::ED), ed_prefixed_opcodes(binary)),
-            Some(Prefix::FD) => (Some(Prefix::FD), unprefixed_opcodes(binary)), // TODO replace.
+            Some(Prefix::FD) => (Some(Prefix::FD), fd_prefixed_opcodes(binary)),
         };
 
         match opcodedata {
@@ -193,6 +191,7 @@ impl Session {
                     Opcode::CALL(_) => Opcode::CALL(bytes_as_octal(bytes)?),
                     Opcode::CALL_(dt, _) => Opcode::CALL_(dt, bytes_as_octal(bytes)?),
                     Opcode::ALU(y, _) => Opcode::ALU(y, bytes_as_octal(bytes)? as u8),
+                    Opcode::LD_(dt, _) => Opcode::LD_(dt, bytes_as_octal(bytes)?),
                     _ => panic!("Invalid opcode for bytes: {:?}", opcode),
                 };
             }
@@ -285,6 +284,16 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
                         _ => undefined(),
                     }
                 },
+
+                1 => {
+                    match q {
+                        0 => {
+                            opcodedata = OpCodeData::BYTE(2);
+                            Opcode::LD_(DataTable::RP(p), 0)
+                        }
+                        _ => undefined(),
+                    }
+                }
 
                 4 => Opcode::INC(y),
                 5 => Opcode::DEC(y),
@@ -420,19 +429,28 @@ pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) 
         0 => Opcode::NOP,
 
         1 => match z {
-            4 => Opcode::NEG,
+
+            /*
+            2 => match q {
+                //0 =>
+                //1 =>
+                _ => undefined(),
+            }
+            */
+
+            4 => Opcode::ED(ED::NEG),
             5 => match y {
-                1 => Opcode::RETI,
-                _ => Opcode::RETN,
+                1 => Opcode::ED(ED::RETI),
+                _ => Opcode::ED(ED::RETN),
             }
 
             7 => match y {
-                0 => Opcode::LDIA,
-                1 => Opcode::LDRA,
-                2 => Opcode::LDAI,
-                3 => Opcode::LDAR,
-                4 => Opcode::RRD,
-                5 => Opcode::RLD,
+                0 => Opcode::ED(ED::LDIA),
+                1 => Opcode::ED(ED::LDRA),
+                2 => Opcode::ED(ED::LDAI),
+                3 => Opcode::ED(ED::LDAR),
+                4 => Opcode::ED(ED::RRD),
+                5 => Opcode::ED(ED::RLD),
                 6...7 => Opcode::NOP,
 
                 _ => undefined(),
@@ -440,14 +458,79 @@ pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) 
 
             _ => undefined(),
         }
+
+        2 => match z {
+            0...3 => match y {
+                4...9 => Opcode::ED(ED::BLI(y,z)),
+                _ => Opcode::NOP
+            }
+            _ => Opcode::NOP
+        }
+
         3 => Opcode::NOP,
 
 
         _ => undefined(),
     };
 
-    println!("ED: {:?}", opcode);
+    (opcode, opcodedata)
+}
 
+/// DD-PREFIXED OPCODES
+pub fn dd_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
+
+    // Uses experimental splice patterning.
+    let [x,y,z,p,q] = binary.x_y_z_p_q();
+
+    // Used for notifiying caller it needs more data to be executed.
+    let opcodedata = OpCodeData::NONE; // TODO not used for now, thus not mut
+
+    // Any commands we can't read, we use an invalid opcode enum.
+    let undefined = || {
+        Opcode::INVALID(binary)
+    };
+
+    (undefined(), opcodedata)
+}
+
+/// FD-PREFIXED OPCODES
+pub fn fd_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
+
+    // Uses experimental splice patterning.
+    let [x,y,z,p,q] = binary.x_y_z_p_q();
+
+    // Used for notifiying caller it needs more data to be executed.
+    let opcodedata = OpCodeData::NONE; // TODO not used for now, thus not mut
+
+    // Any commands we can't read, we use an invalid opcode enum.
+    let undefined = || {
+        Opcode::INVALID(binary)
+    };
+
+    (undefined(), opcodedata)
+}
+
+/// CB-PREFIXED OPCODES
+pub fn cb_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
+
+    // Uses experimental splice patterning.
+    let [x,y,z,p,q] = binary.x_y_z_p_q();
+
+    // Used for notifiying caller it needs more data to be executed.
+    let opcodedata = OpCodeData::NONE; // TODO not used for now, thus not mut
+
+    // Any commands we can't read, we use an invalid opcode enum.
+    let undefined = || {
+        Opcode::INVALID(binary)
+    };
+
+    let opcode = match x {
+        0 => Opcode::CB(CB::ROT(y, DataTable::R(z))),
+        1 => Opcode::CB(CB::BIT(y, DataTable::R(z))),
+        2 => Opcode::CB(CB::RES(y, DataTable::R(z))),
+        3 => Opcode::CB(CB::SET(y, DataTable::R(z))),
+        _ => undefined(),
+    };
 
     (opcode, opcodedata)
 }
@@ -460,7 +543,6 @@ pub fn bytes_as_octal_signed(mut vec: Vec<&u8>) -> i8 {
     let smartbinary = SmartBinary::new(**vec.get(0).unwrap());
     smartbinary.as_i8()
 }
-
 
 pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
 
@@ -518,8 +600,6 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
         Ok(octal_digit_from_binary_list_u16(&list1.as_list()))
     }
 }
-
-
 
 pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
     let mut multiplier = 1;

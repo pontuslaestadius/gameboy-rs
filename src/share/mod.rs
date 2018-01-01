@@ -307,22 +307,18 @@ pub enum OpCodeData<'a> {
 
 
 /// Holds the data table opcodes use to fetch information.
+/// These are intended to point towards a point of data, and does not store the data.
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub enum DataTable {
-    /*
-    R(&'a str),
-    RP(&'a str),
-    RP2(&'a str),
-    */
+    RP(u8),
+    RP2(u8),
     R(u8),
     CC(u8),
-    /*
-    ALU(&'a str),
-    ROT(&'a str),
-    IM(&'a str),
-    BLI(&'a str),
-    */
+    ALU(u8),
+    ROT(u8),
+    IM(u8),
+    BLI(u8),
 }
 
 /// http://www.z80.info/decoding.htm
@@ -341,7 +337,7 @@ pub enum Opcode {
     JR_(DataTable, i8),   // 4 => y <= 7      JR cc[y-4], d
 
     // z == 1
-    // q == 1           LD rp[p], nn
+    LD_(DataTable, u16), // q == 1  LD rp[p], nn
     // q == 2           ADD HL, rp[p]
 
     // z == 4
@@ -396,35 +392,73 @@ pub enum Opcode {
 
     RST(u8), // z == 7          RST y*8
 
-
-
-
-    /// ED-PREFIXED OPCODES
-
-    // x == 1
-        // z == 4
-            NEG,
-        // z == 5
-            // y == 1
-                RETI,
-            // y != 1
-                RETN,
-
-        // z == 7
-            // y == 0
-                LDIA, // LD I, A
-            // y == 1
-                LDRA, // LD R, A
-            // y == 2
-                LDAI, // LD A, I
-            // y == 3
-                LDAR, // LD A, R
-            // y == 4
-                RRD,
-            // y == 5
-                RLD,
-
+    /// PREFIXED OPCODES
+    CB(CB),
+    ED(ED),
+    DD(DD),
+    FD(FD),
 
     // If it's an invalid opcode.
     INVALID(SmartBinary)
+}
+
+/// Holds the ED-prefixed opcodes.
+#[derive(Debug)]
+#[derive(PartialEq)]
+pub enum ED {
+
+    // x == 1
+    // z == 4
+    NEG,
+    // z == 5
+    // y == 1
+    RETI,
+    // y != 1
+    RETN,
+
+    // z == 7
+    // y == 0
+    LDIA, // LD I, A
+    // y == 1
+    LDRA, // LD R, A
+    // y == 2
+    LDAI, // LD A, I
+    // y == 3
+    LDAR, // LD A, R
+    // y == 4
+    RRD,
+    // y == 5
+    RLD,
+
+
+    SBCHL(u16), //SBC HL, rp[p]
+    ADCHL(u16), //ADC HL, rp[p]
+
+    // x == 2
+    BLI(u8, u8), // bli[y,z]
+
+}
+
+/// Holds the CB-prefixed opcodes.
+#[derive(Debug)]
+#[derive(PartialEq)]
+pub enum CB {
+    ROT(u8, DataTable), // rot[y] r[z]
+    BIT(u8, DataTable), // BIT y, r[z]
+    RES(u8, DataTable), // RES y, r[z]
+    SET(u8, DataTable), // SET y, r[z]
+}
+
+/// Holds the FD-prefixed opcodes.
+#[derive(Debug)]
+#[derive(PartialEq)]
+pub enum FD {
+
+}
+
+/// Holds the DD-prefixed opcodes.
+#[derive(Debug)]
+#[derive(PartialEq)]
+pub enum DD {
+
 }
