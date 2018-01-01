@@ -148,7 +148,7 @@ pub fn step_bytes<'a>(rom: &'a Rom, pc: &mut usize, count: u8) -> Result<Vec<&'a
 
 impl Session {
 
-    pub fn execute(&mut self, instruction: Instruction) -> Result<(), io::Error> {
+    pub fn execute(&mut self, instruction: Instruction) -> Result<(), Instruction> {
 
         let formatted_opcode: String = format!("{:?}", instruction.opcode); // TODO remove.
 
@@ -156,7 +156,7 @@ impl Session {
 
             // Loops for invalid opcodes and stores them in the log file.
             Opcode::INVALID(_) => {
-                return Err(io::Error::new(io::ErrorKind::NotFound, "Invalid execution"));
+                return Err(instruction);
             }
 
             _ => println!("{}", formatted_opcode) // TODO replace with execution.

@@ -83,16 +83,19 @@ fn log(path: &str, vec: &Vec<Instruction>) -> Result<(), io::Error> {
 /// Reads op code forever and is the main loop for the emulation.
 /// Will only return anything if it is either done emulating, or
 /// if an error occured that made it panic.
-fn read_loop<'a>(mut session: Session) -> Result<Vec<Instruction<'a>>, io::Error> {
+fn read_loop(mut session: Session) -> Result<Vec<Instruction>, io::Error> {
 
     // Counts the number of invalid op codes read.
     let mut invalid: Vec<Instruction> = Vec::new();
 
     while session.registers.pc < session.rom.content.len() { // TODO replace with a permanent loop.
         let instruction: Instruction = session.fetch_next()?;
-        match session.execute(instruction) {
+
+        let result = session.execute(instruction);
+
+        match result {
             Ok(()) => (),
-            _ => invalid.push(instruction)
+            Err(e) => invalid.push(e)
         }
     }
 

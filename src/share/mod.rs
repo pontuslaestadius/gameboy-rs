@@ -70,11 +70,11 @@ pub struct Flags {
 /// two prefix bytes,  displacement byte,  opcode
 #[derive(Debug)]
 #[derive(PartialEq)]
-pub struct Instruction<'a> {
+pub struct Instruction {
     pub prefix: Option<Prefix>,
     pub opcode: Opcode,
     pub displacement: Option<i8>,
-    pub immediate: (Option<&'a SmartBinary>, Option<&'a SmartBinary>),
+    pub immediate: (Option<SmartBinary>, Option<SmartBinary>),
 }
 
 /// Holds the content of the rom, As to load it in to memory.
