@@ -29,6 +29,7 @@ pub struct SmartBinary {
 #[derive(PartialEq)]
 pub struct Registers {
     pub mem: [u8; 8],
+    pub stack: Vec<u16>,
     pub sp: u16,
     // Program counter, used for pointing at the next instruction to be read.
     pub pc: usize,
@@ -82,9 +83,9 @@ pub struct Rom {
 }
 
 
-/// -----------------
-/// Standardized implementation.
-/// -----------------
+// -----------------
+// Standardized implementation.
+// -----------------
 
 impl Registers {
 
@@ -92,6 +93,7 @@ impl Registers {
     pub fn new() -> Registers {
         Registers {
             mem: [0,0,0,0,0,0,0,0],
+            stack: Vec::new(),
             sp: 0,
             pc: 0,
         }
@@ -216,7 +218,15 @@ impl SmartBinary {
 
     /// Returns the SmartBinary as a u8.
     pub fn as_u8(&self) -> u8 {
-        panic!("TODO u8")
+        let list = self.as_list();
+        let mut multiplier: u32 = 1;
+        let mut result: u8 = 0;
+
+        for item in list.iter().rev() {
+            result += item*multiplier as u8;
+            multiplier = multiplier*2;
+        }
+        result
     }
 
     // Will weight self over other.

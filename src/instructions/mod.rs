@@ -12,9 +12,10 @@ use super::share::*;
 impl fmt::Debug for SmartBinary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
-        write!(f, "SmartBinary: {:?} -> [{:?}]",
+        write!(f, "SmartBinary: {:?} -> [{:?}] HEX: {:X}",
                self.as_list(),
-               self.x_y_z_p_q()
+               self.x_y_z_p_q(),
+               self.as_u8()
         )
     }
 }
@@ -339,7 +340,7 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
                         _ => undefined(),
                     }
 
-                     _ => undefined(),
+                    _ => undefined(),
                 }
 
                 6 => {
