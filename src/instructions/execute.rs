@@ -17,13 +17,9 @@ impl Session {
             Opcode::INC(r) => {
                 self.registers.inc(r);
             }
-
-            // Loops for invalid opcodes and stores them in the log file.
-            Opcode::INVALID(_) => {
-                return Err(instruction);
-            }
-
-            _ => println!("{}", formatted_opcode) // TODO replace with execution.
+            
+            // Anything invalid gets sent upstream.
+            _ => return Err(instruction),
         }
 
         // TODO
