@@ -85,6 +85,13 @@ impl Registers {
         /*
         let operation_formatted = match operation {
             0 => |x: u8| self.mem[0] = self.mem[0] + x,
+            1 => ADC A,
+            2 => SUB,
+            3 => SBC A,
+            4 => AND
+            5 => XOR
+            6 => OR
+            7 => CP
             _ => panic!("Invalid alu operation nr: {}", operation),
         };
         */
