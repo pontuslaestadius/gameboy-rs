@@ -19,7 +19,10 @@ impl Session {
             Opcode::INC(r)          => self.registers.inc(r),
             Opcode::DEC(r)          => self.registers.dec(r),
             Opcode::RST(imm8)       => self.registers.rst(imm8),
-            
+
+            // Alu is one instruction, but has two different input forms.
+            Opcode::ALU(a, b)       => self.registers.alu(a, b),
+            Opcode::ALU_(a, dt)     => self.registers.alu(a, dt.get()),
 
             // Anything invalid gets sent upstream.
             _ => return Err(instruction),
@@ -72,6 +75,22 @@ impl Registers {
         self.mem[0] = 0;
         self.mem[7] = imm8;
         self.stack.push(self.pc as u16 +3);
+    }
+
+    pub fn alu(&mut self, operation: u8, register: u8) {
+
+        // TODO modify flags.
+        // TODO add all operators.
+
+        /*
+        let operation_formatted = match operation {
+            0 => |x: u8| self.mem[0] = self.mem[0] + x,
+            _ => panic!("Invalid alu operation nr: {}", operation),
+        };
+        */
+
+        // TODO asap.
+        println!("ALU: op: {:?}, reg: {}", operation, register);
     }
 
 }
