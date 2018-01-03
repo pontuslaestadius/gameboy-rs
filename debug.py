@@ -26,19 +26,8 @@ for item in list:
 		max_count3 = count
 		max_item3 = item,
 
-print "Total items:"
-print len(list)
-print "top 3 items:"
-print max_count1
-print max_item1
-print "---"
-print max_count2
-print max_item2
-print "---"
-print max_count3
-print max_item3
-print "---"
-
-
-
+print "Total items: " + str(len(list))
+print str(max_count1) + " -> " + str(max_item1).replace('\n', '')
+print str(max_count2) + " -> " + str(max_item2).replace('\n', '')
+print str(max_count3) + " -> " + str(max_item3).replace('\n', '')
 
