@@ -100,4 +100,23 @@ impl Registers {
         println!("ALU: op: {:?}, reg: {}", operation, register);
     }
 
+
+    pub fn set_flag(&mut self, flag: Flag, value: bool) {
+
+        let flag_index = 6;
+        let mut smarbinary: SmartBinary = SmartBinary::new(self.mem[flag_index]);
+
+        let flag = match flag {
+            Flag::sign          => smarbinary.zer = value,
+            Flag::zero          => smarbinary.one = value,
+            Flag::five          => smarbinary.two = value,
+            Flag::half_carry    => smarbinary.thr = value,
+            Flag::three         => smarbinary.fou = value,
+            Flag::parity_or_overflow => smarbinary.fiv = value,
+            Flag::subtract      => smarbinary.six = value,
+            Flag::carry         => smarbinary.sev = value,
+        };
+        self.mem[flag_index] = smarbinary.as_u8();
+    }
+
 }

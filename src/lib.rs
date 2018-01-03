@@ -54,13 +54,11 @@ fn load(file: &mut File) -> Result<Session, io::Error> {
     // Create the subsystem running the emulation.
     let rom = Rom::new(buffer);
     let registers = Registers::new();
-    let flags = Flags::new();
 
     Ok(
         Session {
         rom,
         registers,
-        flags,
     })
 }
 

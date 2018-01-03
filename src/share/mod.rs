@@ -7,7 +7,6 @@
 pub struct Session {
     pub rom: Rom,
     pub registers: Registers,
-    pub flags: Flags,
 }
 
 /// Holds an 8-bit binary.
@@ -40,25 +39,25 @@ pub struct Registers {
 /// And has only been stylized but with identical information.
 #[derive(Debug)]
 #[derive(PartialEq)]
-pub struct Flags {
+pub enum Flag {
     // (S) -> Set if the 2-complement value is negative (copy of MSB)
-    pub sign: bool,
+    sign,
     // (Z) -> Set if the value is zero
-    pub zero: bool,
+    zero,
     // (F5) -> Copy of bit 5
-    pub five: bool,
+    five,
     // (H) -> Carry from bit 3 to bit 4
-    pub half_carry: bool,
+    half_carry,
     // (F3) -> Copy of bit 3
-    pub three: bool,
+    three,
     // (P/V) ->
     // Parity set if even number of bits set
     // Overflow set if the 2-complement result does not fit in the register
-    pub parity_or_overflow: bool,
+    parity_or_overflow,
     // (N) -> Set if the last operation was a subtraction
-    pub subtract: bool,
+    subtract,
     // (C) -> Set if the result did not fit in the register
-    pub carry: bool
+    carry
 }
 
 /// Holds a decoded opcode instruction. They can be as either of the following:
@@ -96,22 +95,6 @@ impl Registers {
             stack: Vec::new(),
             sp: 0,
             pc: 0,
-        }
-    }
-}
-
-impl Flags {
-
-    pub fn new() -> Flags {
-        Flags {
-            sign: false,
-            zero: false,
-            five: false,
-            half_carry: false,
-            three: false,
-            parity_or_overflow: false,
-            subtract: false,
-            carry: false
         }
     }
 }
