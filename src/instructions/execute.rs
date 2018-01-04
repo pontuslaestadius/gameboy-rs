@@ -77,27 +77,65 @@ impl Registers {
         self.stack.push(self.pc as u16 +3);
     }
 
-    pub fn alu(&mut self, operation: u8, register: u8) {
+    pub fn alu(&mut self, operation: u8, input: u8) {
 
         // TODO modify flags.
         // TODO add all operators.
 
-        /*
-        let operation_formatted = match operation {
-            0 => |x: u8| self.mem[0] = self.mem[0] + x,
-            1 => ADC A,
-            2 => SUB,
+        match operation {
+            0 => self.add_a(input),
+
+            2 => self.sub(input),
+            /*1 => ADC A,
             3 => SBC A,
-            4 => AND
+            4 => self.and(input),
             5 => XOR
             6 => OR
             7 => CP
             _ => panic!("Invalid alu operation nr: {}", operation),
+            */
+            _ => println!("Invalid Operation: {}", operation),
         };
-        */
+    }
 
-        // TODO asap.
-        println!("ALU: op: {:?}, reg: {}", operation, register);
+    pub fn and(&mut self, input: u8) {
+        panic!("TODO and");
+        // TODO C and N flags cleared, P/V is parity, rest are altered by definition.
+    }
+
+    pub fn xor(&mut self, input: u8) {
+        panic!("TODO xor");
+        // TODO http://z80-heaven.wikidot.com/instructions-set:xor
+    }
+
+    pub fn cp(&mut self, input: u8) {
+        panic!("TODO cp");
+        // TODO http://z80-heaven.wikidot.com/instructions-set:cp
+    }
+
+    pub fn sub(&mut self, input: u8) {
+        if (self.mem[0] < input) {
+            self.mem[0] = 0;
+        } else {
+            self.mem[0] -= input;
+        }
+        // TODO N flag set, P/V is overflow, rest modified by definition.
+    }
+
+    pub fn add_a(&mut self, register: u8) {
+        if register > 7 {
+            println!("register too big. {}", register);
+            return;
+        }
+
+        let add: u8 = self.mem[register as usize];
+        if self.mem[0] > 255 -add {
+            self.mem[0] = 255;
+        } else {
+            self.mem[0] += self.mem[register as usize];
+        }
+        // TODO (8-bit) N flag is reset, P/V is interpreted as overflow.
+        // TODO (16-bit) preserves the S, Z and P/V flags, and H is undefined.
     }
 
 
