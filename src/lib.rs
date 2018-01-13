@@ -4,6 +4,7 @@
 pub mod instructions;
 pub mod share;
 pub mod tests;
+pub mod hardware;
 
 /// Decoding reading material:
 /// Theory: http://www.z80.info/decoding.htm

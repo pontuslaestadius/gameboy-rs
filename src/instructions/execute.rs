@@ -54,10 +54,12 @@ impl Registers {
         // If it already is at max value, we can't increment.
         if value != 255 {
             self.mem[register as usize] += 1;
+        } else {
+            self.set_flag(Flag::carry, true);
         }
     }
 
-    /// Decrements a register. Does nothing if already at max.
+    /// Decrements a register. Does nothing if aJust like most consoles of the era, the GameBoy didn't have enough memory to allow for a direct framebuffer to be held in memory. Instead, a tile system is employed: a set of small bitmaps is held in memory, and a map is built using references to these bitmaps. The innate advantage to this system is that one tile can be used repeatedly through the map, simply by using its reference.lready at max.
     pub fn dec(&mut self, register: u8) {
         let value = self.mem[register as usize];
 
@@ -89,9 +91,9 @@ impl Registers {
             /*1 => ADC A,
             3 => SBC A,
             4 => self.and(input),
-            5 => XOR
-            6 => OR
-            7 => CP
+            5 => self.xor(input),
+            6 => self.or(input),
+            7 => self.cp(input),
             _ => panic!("Invalid alu operation nr: {}", operation),
             */
             _ => println!("Invalid Operation: {}", operation),
@@ -113,13 +115,20 @@ impl Registers {
         // TODO http://z80-heaven.wikidot.com/instructions-set:cp
     }
 
+    pub fn halt(&mut self) {
+        panic!("TODO halt");
+        // TODO http://z80-heaven.wikidot.com/instructions-set:halt
+    }
+
     pub fn sub(&mut self, input: u8) {
-        if (self.mem[0] < input) {
-            self.mem[0] = 0;
-        } else {
-            self.mem[0] -= input;
-        }
+        self.mem[0] = match (self.mem[0] < input) {
+            true => 0,
+            false => self.mem[0] -input,
+        };
+
         // TODO N flag set, P/V is overflow, rest modified by definition.
+        self.set_flag(Flag::subtract, true);
+        self.set_flag(Flag::parity_or_overflow, true);
     }
 
     pub fn add_a(&mut self, register: u8) {
