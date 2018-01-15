@@ -41,6 +41,18 @@ impl Session {
 
 impl Registers {
 
+    pub fn modify(&mut self, register_index: u8, modify_with: i16) {
+        let value: &u8 = self.mem[register_index];
+        if *value as i16 + modify_with > 255 {
+            // Set overflow flag.
+        } else if *value as i16 + modify_with < 0 {
+            // Set negative flag.
+        } else {
+            // Reset defined flags.
+            *value = *value as i16 + modify_with;
+        }
+    }
+
     /// Sets a register with a new u8 value.
     pub fn ld(&mut self, to: u8, from: u8) {
         let value = self.mem[from as usize];
