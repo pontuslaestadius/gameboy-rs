@@ -1,16 +1,9 @@
+extern crate paw;
+extern crate human_format;
 
-extern crate gameboyrs;
+use gameboy_rs;
 
-use std::fs::File;
-
-fn main() {
-
-    // Rom to load.
-    let filename = "/home/pontus/Desktop/Tetris (World).gb";
-
-    // Open as a file.
-    let mut f = File::open(filename).expect("file not found");
-
-    // Execute the emulation with the file.
-    let _ = gameboyrs::rom_exec(&mut f);
+#[paw::main]
+fn main(args: gameboy_rs::Args) -> std::io::Result<()> {
+    gameboy_rs::rom_exec(args)
 }

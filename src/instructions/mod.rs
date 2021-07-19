@@ -1,57 +1,9 @@
-/// Decoding reading material:
-/// Theory: http://www.z80.info/decoding.htm
-/// op code: http://searchdatacenter.techtarget.com/tip/Basic-disassembly-Decoding-the-opcode
-use std::fmt;
-
-use std::io;
+use super::binary::*;
 use super::share::*;
-
-impl Registers {
-    /// Fetches the value given a string from the decode template provided here:
-    /// http://www.z80.info/decoding.htm
-    pub fn fetch(&self, code: &str) -> u16 {
-
-
-        // If it's a 8-bit or 16-bit fetch.
-
-        let result = match code.len() {
-
-            // This part is easy.
-            1 => {
-
-                match code {
-                    "A" => self.a,
-                    "B" => self.b,
-                    "C" => self.c,
-                    "D" => self.d,
-                    "E" => self.e,
-                    "H" => self.h,
-                    "L" => self.l,
-                    _ => panic!("Invalid register"),
-                }
-
-            }
-
-            _ => panic!("Invalid fetch length"),
-        };
-
-        result as u16
-    }
-}
-
-impl fmt::Debug for SmartBinary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-
-        write!(f, "SmartBinary: {:?} -> [{:?}]",
-               self.as_list(),
-               self.x_y_z_p_q()
-        )
-    }
-}
-
+use crate::Rom;
+use std::io;
 
 impl SmartBinary {
-
     /// Flips the values from 1 to 0 and 0 to 1.
     pub fn flip(&mut self) {
         self.zer = !self.zer;
@@ -74,12 +26,11 @@ impl SmartBinary {
             5 => self.fiv,
             6 => self.six,
             7 => self.sev,
-            _ => panic!("Invalid bit value: {}", bit)
+            _ => panic!("Invalid bit value: {}", bit),
         }
     }
 
     pub fn x_y_z_p_q(&self) -> [u8; 5] {
-
         let orev = |x: bool| {
             if x {
                 1
@@ -89,39 +40,22 @@ impl SmartBinary {
         };
 
         // x = the opcode's 1st octal digit (i.e. bits 7-6)
-        let x = octal_digit_from_binary_list(&[
-            orev(self.sev),
-            orev(self.six)
-        ]);
+        let x = octal_digit_from_binary_list(&[orev(self.sev), orev(self.six)]);
 
         // y = the opcode's 2nd octal digit (i.e. bits 5-3)
-        let y = octal_digit_from_binary_list(&[
-            orev(self.fiv),
-            orev(self.fou),
-            orev(self.thr)
-        ]);
+        let y = octal_digit_from_binary_list(&[orev(self.fiv), orev(self.fou), orev(self.thr)]);
 
         // z = the opcode's 3rd octal digit (i.e. bits 2-0)
-        let z = octal_digit_from_binary_list(&[
-            orev(self.two),
-            orev(self.one),
-            orev(self.zer)
-        ]);
+        let z = octal_digit_from_binary_list(&[orev(self.two), orev(self.one), orev(self.zer)]);
 
         // p = y rightshifted one position (i.e. bits 5-4)
-        let p = octal_digit_from_binary_list(&[
-            orev(self.fiv),
-            orev(self.fou),
-        ]);
+        let p = octal_digit_from_binary_list(&[orev(self.fiv), orev(self.fou)]);
 
         // q = y modulo 2 (i.e. bit 3)
-        let q = octal_digit_from_binary_list(&[
-            orev(self.thr),
-        ]);
+        let q = octal_digit_from_binary_list(&[orev(self.thr)]);
 
-        [x,y,z,p,q]
+        [x, y, z, p, q]
     }
-
 }
 
 /*
@@ -130,99 +64,17 @@ impl SmartBinary {
 two prefix bytes,  displacement byte,  opcode
 */
 
-
-pub fn step_bytes<'a>(rom: &'a Rom, pc: &mut usize, count: u8) -> Result<Vec<&'a u8>, io::Error> {
+pub fn step_bytes<'a>(rom: &'a Rom, pc: &mut u16, count: u8) -> Result<Vec<&'a u8>, io::Error> {
     let mut bytes: Vec<&u8> = Vec::new();
 
     for i in 0..count {
-        bytes.push(rom.content.get(*pc +i as usize).unwrap());
+        bytes.push(rom.content.get((*pc + i as u16) as usize).unwrap());
     }
 
-
-    *pc = *pc +count as usize;
+    *pc = *pc + count as u16;
 
     Ok(bytes)
 }
-
-impl Session {
-
-    pub fn execute(&mut self, instruction: Instruction) -> Result<(), Instruction> {
-
-        let formatted_opcode: String = format!("{:?}", instruction.opcode); // TODO remove.
-
-        match instruction.opcode {
-
-            // Loops for invalid opcodes and stores them in the log file.
-            Opcode::INVALID(_) => {
-                return Err(instruction);
-            }
-
-            _ => println!("{}", formatted_opcode) // TODO replace with execution.
-        }
-
-        // TODO
-        Ok(())
-    }
-
-    pub fn fetch_next(&mut self) -> Result<Instruction, io::Error> {
-
-        // Read a single byte from the rom.
-        let byte_vec = step_bytes(&self.rom, &mut self.registers.pc, 1).unwrap();
-
-        let byte = byte_vec.get(0).unwrap();
-        let binary: SmartBinary = SmartBinary::new(**byte);
-
-        // Check for a prefix byte.
-        let (prefix, (mut opcode, opcodedata)) = match check_prefix_opcodes(&binary) {
-            None => (None, unprefixed_opcodes(binary)),
-            Some(Prefix::CB) => (Some(Prefix::CB), cb_prefixed_opcodes(binary)),
-            Some(Prefix::DD) => (Some(Prefix::DD), dd_prefixed_opcodes(binary)),
-            Some(Prefix::ED) => (Some(Prefix::ED), ed_prefixed_opcodes(binary)),
-            Some(Prefix::FD) => (Some(Prefix::FD), fd_prefixed_opcodes(binary)),
-        };
-
-        match opcodedata {
-
-            OpCodeData::BYTE(x) => {
-                let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
-                opcode = match opcode {
-                    // TODO find a better way to do this.
-                    Opcode::JP(_) => Opcode::JP(bytes_as_octal(bytes)?),
-                    Opcode::CALL(_) => Opcode::CALL(bytes_as_octal(bytes)?),
-                    Opcode::CALL_(dt, _) => Opcode::CALL_(dt, bytes_as_octal(bytes)?),
-                    Opcode::ALU(y, _) => Opcode::ALU(y, bytes_as_octal(bytes)? as u8),
-                    Opcode::LD_(dt, _) => Opcode::LD_(dt, bytes_as_octal(bytes)?),
-                    _ => panic!("Invalid opcode for bytes: {:?}", opcode),
-                };
-            }
-
-            OpCodeData::BYTESIGNED(x) => {
-                let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
-                opcode = match opcode {
-                    Opcode::JR_(d, _) => Opcode::JR_(d, bytes_as_octal_signed(bytes)),
-                    Opcode::JR(_) => Opcode::JR(bytes_as_octal_signed(bytes)),
-                    Opcode::DJNZ(_) => Opcode::DJNZ(bytes_as_octal_signed(bytes)),
-                    _ => panic!("Invalid opcode for bytesigned: {:?}", opcode),
-                };
-            }
-
-            // It can be no opcodedata, so this is perfectly acceptable.
-            _ => (),
-        }
-
-
-        let instruction = Instruction {
-            prefix: prefix,
-            opcode: opcode,
-            displacement: None,
-            immediate: (None, None)
-        };
-
-        Ok(instruction)
-    }
-
-}
-
 
 pub fn check_prefix_opcodes(binary: &SmartBinary) -> Option<Prefix> {
     let byte = octal_digit_from_binary_list_u16(&binary.as_list());
@@ -235,121 +87,94 @@ pub fn check_prefix_opcodes(binary: &SmartBinary) -> Option<Prefix> {
         253 => Some(Prefix::FD),
         _ => None,
     }
-
 }
-
 
 /// This should be called when it is known that it's a unprefixed opcode,
 /// Returns a Opcode enum and a number of following bytes required for the action.
 pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
-
     // Uses experimental splice patterning.
-    let [x,y,z,p,q] = binary.x_y_z_p_q();
+    let [x, y, z, p, q] = binary.x_y_z_p_q();
 
     // Used for notifiying caller it needs more data to be executed.
     let mut opcodedata = OpCodeData::NONE;
 
     // Any commands we can't read, we use an invalid opcode enum.
-    let undefined = || {
-        Opcode::INVALID(binary)
-    };
+    let undefined = || Opcode::INVALID(binary);
 
     let opcode = match x {
-        0 => {
+        0 => match z {
+            0 => match y {
+                0 => Opcode::NOP,
+                1 => Opcode::EXAF,
 
-            match z {
-
-                0 => {
-
-                    match y {
-
-                        0 => Opcode::NOP,
-                        1 => Opcode::EXAF,
-
-                        2 => {
-                            opcodedata = OpCodeData::BYTESIGNED(1);
-                            Opcode::DJNZ(0)
-                        }
-
-                        3 => {
-                            opcodedata = OpCodeData::BYTESIGNED(1);
-                            Opcode::JR(0)
-                        }
-
-                        4...7 => {
-                            opcodedata = OpCodeData::BYTESIGNED(1);
-                            Opcode::JR_(DataTable::CC(y-4), 0)
-                        }
-
-                        _ => undefined(),
-                    }
-                },
-
-                1 => {
-                    match q {
-                        0 => {
-                            opcodedata = OpCodeData::BYTE(2);
-                            Opcode::LD_(DataTable::RP(p), 0)
-                        }
-                        _ => undefined(),
-                    }
+                2 => {
+                    opcodedata = OpCodeData::BYTESIGNED(1);
+                    Opcode::DJNZ(0)
                 }
 
-                4 => Opcode::INC(y),
-                5 => Opcode::DEC(y),
+                3 => {
+                    opcodedata = OpCodeData::BYTESIGNED(1);
+                    Opcode::JR(0)
+                }
 
-                7 => {
-
-                    match y {
-
-                        0 => Opcode::RLCA,
-                        1 => Opcode::RRCA,
-                        2 => Opcode::RLA,
-                        3 => Opcode::RRA,
-                        4 => Opcode::DAA,
-                        5 => Opcode::CPL,
-                        6 => Opcode::SCF,
-                        7 => Opcode::CCF,
-
-                        _ => undefined(),
-                    }
-                },
+                4..=7 => {
+                    opcodedata = OpCodeData::BYTESIGNED(1);
+                    Opcode::JR_(DataTable::CC(y - 4), 0)
+                }
 
                 _ => undefined(),
-            }
-        }
+            },
+
+            1 => match q {
+                0 => {
+                    opcodedata = OpCodeData::BYTE(2);
+                    Opcode::LD_(DataTable::RP(p), 0)
+                }
+                _ => undefined(),
+            },
+
+            4 => Opcode::INC(y),
+            5 => Opcode::DEC(y),
+
+            7 => match y {
+                0 => Opcode::RLCA,
+                1 => Opcode::RRCA,
+                2 => Opcode::RLA,
+                3 => Opcode::RRA,
+                4 => Opcode::DAA,
+                5 => Opcode::CPL,
+                6 => Opcode::SCF,
+                7 => Opcode::CCF,
+
+                _ => undefined(),
+            },
+
+            _ => undefined(),
+        },
 
         1 => match y {
-
             6 => Opcode::HALT,
 
             // TODO should LD always be returned for this?
             _ => Opcode::LD(DataTable::R(y), DataTable::R(z)),
-        }
+        },
 
         2 => Opcode::ALU_(y, DataTable::R(z)),
 
         3 => {
-
             match z {
-
                 0 => Opcode::RET_(DataTable::CC(y)),
 
                 1 => {
-
                     match q {
-
                         1 => {
-
                             match p {
-
                                 0 => Opcode::RET,
                                 1 => Opcode::EXX,
                                 2 => Opcode::JPHL, // TODO fix, should be JP(HL)
                                 3 => Opcode::LDSPHL,
 
                                 _ => undefined(),
-
                             }
                         }
 
@@ -357,21 +182,17 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
                     }
                 }
 
-                3 =>
+                3 => match y {
+                    0 => {
+                        opcodedata = OpCodeData::BYTE(2);
+                        Opcode::JP(0)
+                    }
 
-                    match y {
+                    6 => Opcode::DI,
+                    7 => Opcode::EI,
 
-                        0 => {
-                            opcodedata = OpCodeData::BYTE(2);
-                            Opcode::JP(0)
-                        },
-
-                        6 => Opcode::DI,
-                        7 => Opcode::EI,
-
-                        _ => undefined(),
-                    },
-
+                    _ => undefined(),
+                },
 
                 4 => {
                     opcodedata = OpCodeData::BYTE(2);
@@ -385,19 +206,17 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
                             Opcode::CALL(0)
                         }
                         _ => undefined(),
-                    }
+                    },
 
-                     _ => undefined(),
-                }
+                    _ => undefined(),
+                },
 
                 6 => {
                     opcodedata = OpCodeData::BYTE(1);
-                    Opcode::ALU(y,0)
+                    Opcode::ALU(y, 0)
                 }
 
-                7 => {
-                    Opcode::RST(y*8)
-                }
+                7 => Opcode::RST(y * 8),
 
                 _ => undefined(),
             }
@@ -409,27 +228,21 @@ pub fn unprefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
     (opcode, opcodedata)
 }
 
-
-
 /// ED-PREFIXED OPCODES
 pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
-
     // Uses experimental splice patterning.
-    let [x,y,z,p,q] = binary.x_y_z_p_q();
+    let [x, y, z, _p, _q] = binary.x_y_z_p_q();
 
     // Used for notifiying caller it needs more data to be executed.
     let opcodedata = OpCodeData::NONE; // TODO not used for now, thus not mut
 
     // Any commands we can't read, we use an invalid opcode enum.
-    let undefined = || {
-        Opcode::INVALID(binary)
-    };
+    let undefined = || Opcode::INVALID(binary);
 
     let opcode = match x {
         0 => Opcode::NOP,
 
         1 => match z {
-
             /*
             2 => match q {
                 //0 =>
@@ -437,12 +250,11 @@ pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) 
                 _ => undefined(),
             }
             */
-
             4 => Opcode::ED(ED::NEG),
             5 => match y {
                 1 => Opcode::ED(ED::RETI),
                 _ => Opcode::ED(ED::RETN),
-            }
+            },
 
             7 => match y {
                 0 => Opcode::ED(ED::LDIA),
@@ -451,24 +263,23 @@ pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) 
                 3 => Opcode::ED(ED::LDAR),
                 4 => Opcode::ED(ED::RRD),
                 5 => Opcode::ED(ED::RLD),
-                6...7 => Opcode::NOP,
+                6..=7 => Opcode::NOP,
 
                 _ => undefined(),
-            }
+            },
 
             _ => undefined(),
-        }
+        },
 
         2 => match z {
-            0...3 => match y {
-                4...9 => Opcode::ED(ED::BLI(y,z)),
-                _ => Opcode::NOP
-            }
-            _ => Opcode::NOP
-        }
+            0..=3 => match y {
+                4..=9 => Opcode::ED(ED::BLI(y, z)),
+                _ => Opcode::NOP,
+            },
+            _ => Opcode::NOP,
+        },
 
         3 => Opcode::NOP,
-
 
         _ => undefined(),
     };
@@ -478,51 +289,42 @@ pub fn ed_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) 
 
 /// DD-PREFIXED OPCODES
 pub fn dd_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
-
     // Uses experimental splice patterning.
-    let [x,y,z,p,q] = binary.x_y_z_p_q();
+    // let [x, y, z, p, q] = binary.x_y_z_p_q();
 
     // Used for notifiying caller it needs more data to be executed.
     let opcodedata = OpCodeData::NONE; // TODO not used for now, thus not mut
 
     // Any commands we can't read, we use an invalid opcode enum.
-    let undefined = || {
-        Opcode::INVALID(binary)
-    };
+    let undefined = || Opcode::INVALID(binary);
 
     (undefined(), opcodedata)
 }
 
 /// FD-PREFIXED OPCODES
 pub fn fd_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
-
     // Uses experimental splice patterning.
-    let [x,y,z,p,q] = binary.x_y_z_p_q();
+    // let [x, y, z, p, q] = binary.x_y_z_p_q();
 
     // Used for notifiying caller it needs more data to be executed.
     let opcodedata = OpCodeData::NONE; // TODO not used for now, thus not mut
 
     // Any commands we can't read, we use an invalid opcode enum.
-    let undefined = || {
-        Opcode::INVALID(binary)
-    };
+    let undefined = || Opcode::INVALID(binary);
 
     (undefined(), opcodedata)
 }
 
 /// CB-PREFIXED OPCODES
 pub fn cb_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) {
-
     // Uses experimental splice patterning.
-    let [x,y,z,p,q] = binary.x_y_z_p_q();
+    let [x, y, z, _p, _q] = binary.x_y_z_p_q();
 
     // Used for notifiying caller it needs more data to be executed.
     let opcodedata = OpCodeData::NONE; // TODO not used for now, thus not mut
 
     // Any commands we can't read, we use an invalid opcode enum.
-    let undefined = || {
-        Opcode::INVALID(binary)
-    };
+    let undefined = || Opcode::INVALID(binary);
 
     let opcode = match x {
         0 => Opcode::CB(CB::ROT(y, DataTable::R(z))),
@@ -535,8 +337,8 @@ pub fn cb_prefixed_opcodes<'a>(binary: SmartBinary) -> (Opcode, OpCodeData<'a>) 
     (opcode, opcodedata)
 }
 
-pub fn bytes_as_octal_signed(mut vec: Vec<&u8>) -> i8 {
-    if (vec.len() > 1) {
+pub fn bytes_as_octal_signed(vec: Vec<&u8>) -> i8 {
+    if vec.len() > 1 {
         panic!("octal signed len > 1 not implemented");
     }
 
@@ -545,13 +347,11 @@ pub fn bytes_as_octal_signed(mut vec: Vec<&u8>) -> i8 {
 }
 
 pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
-
     let mut vec_smart_binaries: Vec<SmartBinary> = Vec::new();
 
     for item in vec.iter() {
         vec_smart_binaries.push(SmartBinary::new(*item.clone()));
     }
-
 
     // This part only works for 2 or 1 byte.
 
@@ -561,9 +361,7 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
         // Join the lists.
 
         // two bytes.
-        let mut list: [u8; 16] = [
-            0,0,0,0,0,0,0,0,
-            0,0,0,0,0,0,0,0];
+        let mut list: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
         let list2: &SmartBinary = vec_smart_binaries.get(1).unwrap();
 
@@ -584,60 +382,17 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
         list[6] = orev(list1.six);
         list[7] = orev(list1.sev);
 
-        list[0+8] = orev(list2.zer);
-        list[1+8] = orev(list2.one);
-        list[2+8] = orev(list2.two);
-        list[3+8] = orev(list2.thr);
-        list[4+8] = orev(list2.fou);
-        list[5+8] = orev(list2.fiv);
-        list[6+8] = orev(list2.six);
-        list[7+8] = orev(list2.sev);
+        list[0 + 8] = orev(list2.zer);
+        list[1 + 8] = orev(list2.one);
+        list[2 + 8] = orev(list2.two);
+        list[3 + 8] = orev(list2.thr);
+        list[4 + 8] = orev(list2.fou);
+        list[5 + 8] = orev(list2.fiv);
+        list[6 + 8] = orev(list2.six);
+        list[7 + 8] = orev(list2.sev);
 
         Ok(octal_digit_from_binary_list_u16(&list))
-
     } else {
-
         Ok(octal_digit_from_binary_list_u16(&list1.as_list()))
     }
 }
-
-pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
-    let mut multiplier = 1;
-    let mut result: u8 = 0;
-
-    for item in list.iter().rev() {
-        result += item*multiplier;
-        multiplier = multiplier*2;
-    }
-    result
-}
-
-pub fn octal_digit_from_binary_list_u16(list: &[u8]) -> u16 {
-    let mut multiplier: u32 = 1;
-    let mut result: u16 = 0;
-
-    for item in list.iter().rev() {
-        result += *item as u16 *multiplier as u16;
-        multiplier = multiplier*2;
-    }
-    result
-}
-
-pub fn octal_digit_from_binary_list_i16(list: &[u8]) -> i16 {
-    let mut result: i16 = 0;
-
-    let mut iter = list.iter();
-    let signed = iter.next().unwrap();
-
-    let signed_clear: i16 = match *signed {
-        0 => 1,
-        _ => -1
-    };
-
-    let two: i16 = 2;
-    for (index, item) in iter.rev().enumerate() {
-        result += *item as i16 *two.pow(index as u32);
-    }
-    result*signed_clear
-}
-
