@@ -16,3 +16,6 @@ Cargo.lock
 
 # For the debug log
 log.txt
+
+# Log files output by the application
+*.log

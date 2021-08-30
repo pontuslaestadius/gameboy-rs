@@ -1,30 +1,31 @@
-use crate::instructions::*;
 use crate::share::*;
-use crate::{Instruction, Registers, Rom, SmartBinary};
-use std::io;
+use crate::{Instruction, Memory, Registers};
+use std::{thread, time};
 
-/// 16 MB (1024*1024*16)
-const ADDRESS_BOOK_SIZE: usize = 16777216;
+/// https://8bitnotes.com/2017/05/z80-timing/
+const T_CYCLE: time::Duration = time::Duration::from_nanos(250);
 
-struct AdressBook {
-    // 32MB max limit.
-    data: [u16; ADDRESS_BOOK_SIZE],
-}
-
-impl AdressBook {
-    pub fn new() -> AdressBook {
-        AdressBook { data: [0; ADDRESS_BOOK_SIZE] }
-    }
-}
+// enum CodeResult {
+//     Ok,
+//     Err(String),
+//     NeedsAdditionalBytes(u8),
+// }
 
 /// Binds together a rom, a register and the flags.
 /// Used for holding the entire 'session' of a emulation.
 pub struct Session {
-    pub rom: Rom,
     pub registers: Registers,
+    pub memory: Memory,
 }
 
 impl Session {
+    pub fn new(buffer: Vec<u8>) -> Self {
+        Session {
+            memory: Memory::new(buffer),
+            registers: Registers::new(),
+        }
+    }
+
     pub fn execute(&mut self, instruction: Instruction) -> Result<(), Instruction> {
         let _formatted_opcode: String = format!("{:?}", instruction.opcode); // TODO remove.
 
@@ -42,58 +43,360 @@ impl Session {
         Ok(())
     }
 
-    pub fn fetch_next(&mut self) -> Result<Instruction, io::Error> {
-        // Read a single byte from the rom.
-        let byte_vec = step_bytes(&self.rom, &mut self.registers.pc, 1).unwrap();
+    pub fn read16(&mut self) -> u16 {
+        let p = self.registers.pc as usize;
+        self.registers.pc += 2;
+        Registers::join(self.memory.data[p], self.memory.data[p + 1])
+    }
 
-        let byte = byte_vec.get(0).unwrap();
-        let binary: SmartBinary = SmartBinary::new(**byte);
+    pub fn read8(&mut self) -> u8 {
+        let p = self.registers.pc as usize;
+        self.registers.pc += 1;
+        self.memory.data[p]
+    }
 
-        // Check for a prefix byte.
-        let (prefix, (mut opcode, opcodedata)) = match check_prefix_opcodes(&binary) {
-            None => (None, unprefixed_opcodes(binary)),
-            Some(Prefix::CB) => (Some(Prefix::CB), cb_prefixed_opcodes(binary)),
-            Some(Prefix::DD) => (Some(Prefix::DD), dd_prefixed_opcodes(binary)),
-            Some(Prefix::ED) => (Some(Prefix::ED), ed_prefixed_opcodes(binary)),
-            Some(Prefix::FD) => (Some(Prefix::FD), fd_prefixed_opcodes(binary)),
-        };
+    pub fn next(&mut self) -> Result<(), String> {
+        // Decides if the instruction is implemented, and working as intended.
+        let mut result: Result<(), String> = Ok(());
+        // Most instructions take 4 cycles, so it is the default value.
+        let mut cycles = 4;
 
-        match opcodedata {
-            OpCodeData::BYTE(x) => {
-                let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
-                opcode = match opcode {
-                    // TODO find a better way to do this.
-                    Opcode::JP(_) => Opcode::JP(bytes_as_octal(bytes)?),
-                    Opcode::CALL(_) => Opcode::CALL(bytes_as_octal(bytes)?),
-                    Opcode::CALL_(dt, _) => Opcode::CALL_(dt, bytes_as_octal(bytes)?),
-                    Opcode::ALU(y, _) => Opcode::ALU(y, bytes_as_octal(bytes)? as u8),
-                    Opcode::LD_(dt, _) => Opcode::LD_(dt, bytes_as_octal(bytes)?),
-                    _ => panic!("Invalid opcode for bytes: {:?}", opcode),
-                };
+        let byte = self.read8();
+
+        match byte {
+            0 => {
+                // NOP
+                // Used for wasting cycles, and thus, waiting.
             }
-
-            OpCodeData::BYTESIGNED(x) => {
-                let bytes = step_bytes(&self.rom, &mut self.registers.pc, x)?;
-                opcode = match opcode {
-                    Opcode::JR_(d, _) => Opcode::JR_(d, bytes_as_octal_signed(bytes)),
-                    Opcode::JR(_) => Opcode::JR(bytes_as_octal_signed(bytes)),
-                    Opcode::DJNZ(_) => Opcode::DJNZ(bytes_as_octal_signed(bytes)),
-                    _ => panic!("Invalid opcode for bytesigned: {:?}", opcode),
-                };
+            1 => {
+                // LD BC,d16
+                let d16 = self.read16();
+                self.registers.ld_bc(d16);
+                cycles = 12;
             }
-
-            // It can be no opcodedata, so this is perfectly acceptable.
-            _ => (),
+            2 => {
+                // LD (BC),A
+                self.registers.ld("BC", "A");
+                cycles = 8;
+            }
+            3 => {
+                // INC BC
+                self.registers.inc_bc();
+                cycles = 8;
+            }
+            4 => {
+                // INC B
+                self.registers.inc8('B');
+            }
+            5 => {
+                // DEC B
+                self.registers.dec8('B');
+            }
+            6 => {
+                // LD B,d8
+                let d8 = self.read8();
+                self.registers.ld8('B', d8);
+                cycles = 8;
+            }
+            7 => {
+                self.registers.rlca();
+            }
+            // 8 => {
+            //     // LD (a16),SP
+            //     let data = Registers::join(self.read(1u16), self.read(1u16));
+            //     self.registers.set_sp(data);
+            //     cycles = 20;
+            // }
+            11 => {
+                // DEC BC
+                self.registers.dec_bc();
+                cycles = 8;
+            }
+            12 => {
+                // INC C
+                self.registers.inc8('C');
+            }
+            13 => {
+                // DEC C
+                self.registers.dec8('C');
+            }
+            28 => {
+                // INC E
+                self.registers.inc8('E');
+            }
+            29 => {
+                // DEC E
+                self.registers.dec8('E');
+            }
+            33 => {
+                // LD HL,d16
+                let d16 = self.read16();
+                self.registers.ld_hc(d16);
+                cycles = 12;
+            }
+            36 => {
+                // INC H
+                self.registers.inc8('H');
+            }
+            37 => {
+                // DEC H
+                self.registers.dec8('H');
+            }
+            44 => {
+                // INC L
+                self.registers.inc8('L');
+            }
+            45 => {
+                // DEC L
+                self.registers.dec8('L');
+            }
+            46 => {
+                // LD L,d8
+                let d8 = self.read8();
+                self.registers.ld8('L', d8);
+                cycles = 8;
+            }
+            60 => {
+                // INC A
+                self.registers.inc8('A');
+            }
+            61 => {
+                // INC A
+                self.registers.dec8('A');
+            }
+            64 => {
+                // LD B,B
+                self.registers.ld8('B', self.registers.b());
+            }
+            65 => {
+                // LD B,C
+                self.registers.ld8('B', self.registers.c());
+            }
+            66 => {
+                // LD B,D
+                self.registers.ld8('B', self.registers.d());
+            }
+            67 => {
+                // LD B,E
+                self.registers.ld8('B', self.registers.e());
+            }
+            68 => {
+                // LD B,H
+                self.registers.ld8('B', self.registers.h());
+            }
+            69 => {
+                // LD B,(HL)
+                self.registers.ld("B", "HL");
+            }
+            74 => {
+                // LD C,D
+                self.registers.ld8('C', self.registers.d());
+            }
+            75 => {
+                // LD C,E
+                self.registers.ld8('C', self.registers.e());
+            }
+            // 234 => {
+            //     // LD (a16),A
+            // }
+            81 => {
+                // LD D,C
+                self.registers.ld("D", "C");
+            }
+            82 => {
+                // LD D,D
+                self.registers.ld("D", "D");
+            }
+            83 => {
+                // LD D,E
+                self.registers.ld("D", "E");
+            }
+            84 => {
+                // LD D,H
+                self.registers.ld("D", "H");
+            }
+            85 => {
+                // LD D,L
+                self.registers.ld("D", "L");
+            }
+            86 => {
+                // LD D,(HL)
+                self.registers.ld("D", "HL");
+                cycles = 8;
+            }
+            87 => {
+                // LD D,A
+                self.registers.ld("D", "A");
+            }
+            88 => {
+                // LD E,B
+                self.registers.ld("E", "B");
+            }
+            89 => {
+                // LD E,C
+                self.registers.ld("E", "C");
+            }
+            90 => {
+                // LD E,D
+                self.registers.ld("E", "D");
+            }
+            91 => {
+                // LD E,E
+                self.registers.ld("E", "E");
+            }
+            92 => {
+                // LD E,H
+                self.registers.ld("E", "H");
+            }
+            93 => {
+                // LD E,L
+                self.registers.ld("E", "L");
+            }
+            94 => {
+                // LD E,(HL)
+                self.registers.ld("E", "HL");
+                cycles = 8;
+            }
+            95 => {
+                // LD E,A
+                self.registers.ld("E", "A");
+            }
+            96 => {
+                // LD H,B
+                self.registers.ld("H", "B");
+            }
+            97 => {
+                // LD H,C
+                self.registers.ld("H", "C");
+            }
+            98 => {
+                // LD H,D
+                self.registers.ld("H", "D");
+            }
+            99 => {
+                // LD H,E
+                self.registers.ld("H", "E");
+            }
+            100 => {
+                // LD H,H
+                self.registers.ld("H", "H");
+            }
+            101 => {
+                // LD H,L
+                self.registers.ld("H", "L");
+            }
+            102 => {
+                // LD H,(HL)
+                self.registers.ld("H", "HL");
+                cycles = 8;
+            }
+            103 => {
+                // LD H,A
+                self.registers.ld("H", "A");
+            }
+            104 => {
+                // LD L,B
+                self.registers.ld("L", "B");
+            }
+            105 => {
+                // LD L,C
+                self.registers.ld("L", "C");
+            }
+            106 => {
+                // LD L,D
+                self.registers.ld("L", "D");
+            }
+            107 => {
+                // LD L,E
+                self.registers.ld("L", "E");
+            }
+            108 => {
+                // LD L,H
+                self.registers.ld("L", "H");
+            }
+            109 => {
+                // LD L,L
+                self.registers.ld("L", "L");
+            }
+            110 => {
+                // LD L,(HL)
+                self.registers.ld("L", "HL");
+            }
+            111 => {
+                // LD L,A
+                self.registers.ld("L", "A");
+            }
+            154 => {
+                self.registers.sub('C');
+            }
+            _ => {
+                result = Err(format!(
+                    "no implementation found for (hex: {:x}, byte: {})",
+                    byte, byte
+                ));
+            }
         }
 
-        let instruction = Instruction {
-            raw: SmartBinary::new(**byte),
-            prefix,
-            opcode,
-            displacement: None,
-            immediate: (None, None),
-        };
+        thread::sleep(T_CYCLE * cycles);
 
-        Ok(instruction)
+        result
     }
+
+    // pub fn fetch_next(&mut self) -> Result<Instruction, io::Error> {
+    //     // What I would like to write:
+    //     // self.memory.get(self.registers.pc, byte_count)?
+
+    //     // Read a byte from ROM.
+    //     let byte = self.read(1u16);
+    //     let binary: SmartBinary = SmartBinary::new(byte);
+
+    //     println!("{:x}", byte);
+
+    //     // Check for a prefix byte.
+    //     let (prefix, (mut opcode, opcodedata)) = match check_prefix_opcodes(&binary) {
+    //         None => (None, unprefixed_opcodes(binary)),
+    //         Some(Prefix::CB) => (Some(Prefix::CB), cb_prefixed_opcodes(binary)),
+    //         Some(Prefix::DD) => (Some(Prefix::DD), dd_prefixed_opcodes(binary)),
+    //         Some(Prefix::ED) => (Some(Prefix::ED), ed_prefixed_opcodes(binary)),
+    //         Some(Prefix::FD) => (Some(Prefix::FD), fd_prefixed_opcodes(binary)),
+    //     };
+
+    //     match opcodedata {
+    //         OpCodeData::BYTE(x) => {
+    //             let bytes = step_bytes(&self.memory.data(), &mut self.registers.pc, x)?;
+    //             opcode = match opcode {
+    //                 // TODO find a better way to do this.
+    //                 Opcode::JP(_) => Opcode::JP(bytes_as_octal(bytes)?),
+    //                 Opcode::CALL(_) => Opcode::CALL(bytes_as_octal(bytes)?),
+    //                 Opcode::CALL_(dt, _) => Opcode::CALL_(dt, bytes_as_octal(bytes)?),
+    //                 Opcode::ALU(y, _) => Opcode::ALU(y, bytes_as_octal(bytes)? as u8),
+    //                 Opcode::LD_(dt, _) => Opcode::LD_(dt, bytes_as_octal(bytes)?),
+    //                 _ => panic!("Invalid opcode for bytes: {:?}", opcode),
+    //             };
+    //         }
+
+    //         OpCodeData::BYTESIGNED(x) => {
+    //             let bytes = step_bytes(&self.memory.data(), &mut self.registers.pc, x)?;
+    //             opcode = match opcode {
+    //                 Opcode::JR_(d, _) => Opcode::JR_(d, bytes_as_octal_signed(bytes)),
+    //                 Opcode::JR(_) => Opcode::JR(bytes_as_octal_signed(bytes)),
+    //                 Opcode::DJNZ(_) => Opcode::DJNZ(bytes_as_octal_signed(bytes)),
+    //                 _ => panic!("Invalid opcode for bytesigned: {:?}", opcode),
+    //             };
+    //         }
+
+    //         // It can be no opcodedata, so this is perfectly acceptable.
+    //         _ => (),
+    //     }
+
+    //     let instruction = Instruction {
+    //         raw: SmartBinary::new(**byte),
+    //         prefix,
+    //         opcode,
+    //         displacement: None,
+    //         immediate: (None, None),
+    //     };
+
+    //     Ok(instruction)
+    // }
 }

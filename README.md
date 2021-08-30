@@ -7,7 +7,7 @@ The goal of this project is to create a gameboy emulator in Rust.
 
 
 - [x] Registers
-- [ ] Adress bus
+- [ ] Address bus-
 - [ ] LD operations
 
 

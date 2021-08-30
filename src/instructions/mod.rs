@@ -2,6 +2,7 @@ use super::binary::*;
 use super::share::*;
 use crate::Rom;
 use std::io;
+use crate::utils::*;
 
 impl SmartBinary {
     /// Flips the values from 1 to 0 and 0 to 1.
@@ -64,14 +65,15 @@ impl SmartBinary {
 two prefix bytes,  displacement byte,  opcode
 */
 
-pub fn step_bytes<'a>(rom: &'a Rom, pc: &mut u16, count: u8) -> Result<Vec<&'a u8>, io::Error> {
+pub fn step_bytes<'a, T: Into<u16>>(rom: &'a Rom, pc: &mut u16, count: T) -> Result<Vec<&'a u8>, io::Error> {
     let mut bytes: Vec<&u8> = Vec::new();
+    let count = count.into();
 
     for i in 0..count {
-        bytes.push(rom.content.get((*pc + i as u16) as usize).unwrap());
+        bytes.push(rom.content.get((*pc + i) as usize).unwrap());
     }
 
-    *pc = *pc + count as u16;
+    *pc = *pc + count;
 
     Ok(bytes)
 }
