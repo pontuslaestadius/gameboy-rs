@@ -1,13 +1,9 @@
 [package]
 name = "gameboy_rs"
 version = "0.2.0"
-edition = "2018"
+edition = "2024"
 authors = ["Pontus Laestadius <pontus.laestadius@gmail.com>"]
 
 [dependencies]
-paw = "1.0.0"
+clap = { version = "4.5.54", features = ["derive"] }
 human_format = "1.0.3"
-
-[dependencies.structopt]
-version = "0.3"
-features = ["paw"]

@@ -1,6 +1,5 @@
-
+use crate::{Opcode, Prefix, SmartBinary};
 use std::fmt;
-use crate::{SmartBinary, Opcode, Prefix};
 
 /// Holds a decoded opcode instruction. They can be as either of the following:
 /// optional bytes are described using [optional].

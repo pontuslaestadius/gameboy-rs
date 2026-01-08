@@ -60,8 +60,7 @@ impl SmartBinary {
     }
 
     pub fn binary(&self) -> String {
-        self
-            .as_list()
+        self.as_list()
             .iter()
             .map(|x| format!("{}", x))
             .collect::<String>()
@@ -75,11 +74,7 @@ impl SmartBinary {
     /// Creates a smartbinary from a list.
     pub fn from_list(list: [u8; 8]) -> SmartBinary {
         let convert_u8b = |x| {
-            if x == 1 {
-                true
-            } else {
-                false
-            }
+            if x == 1 { true } else { false }
         };
 
         SmartBinary {
@@ -97,11 +92,7 @@ impl SmartBinary {
     /// Returns a binary list of a SmartBinary.
     pub fn as_list(&self) -> [u8; 8] {
         let convert = |x| {
-            if x {
-                1
-            } else {
-                0
-            }
+            if x { 1 } else { 0 }
         };
 
         [
@@ -121,11 +112,7 @@ impl SmartBinary {
         let list = self.as_list();
         // Turns 1 to 0 and 0 to 1.
         let flip = |x| {
-            if x == 1 {
-                0
-            } else {
-                1
-            }
+            if x == 1 { 0 } else { 1 }
         };
 
         [

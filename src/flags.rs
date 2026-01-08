@@ -1,4 +1,3 @@
-
 use std::fmt;
 
 /// Flag documentation gathered from:
@@ -28,10 +27,18 @@ pub struct Flags {
 // CZPSNH
 impl fmt::Debug for Flags {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}{}{}{}{}", self.carry as u8, self.zero as u8, self.parity_or_overflow as u8, self.sign as u8, self.subtract as u8, self.half_carry as u8)
+        write!(
+            f,
+            "{}{}{}{}{}{}",
+            self.carry as u8,
+            self.zero as u8,
+            self.parity_or_overflow as u8,
+            self.sign as u8,
+            self.subtract as u8,
+            self.half_carry as u8
+        )
     }
 }
-
 
 impl Flags {
     pub fn new() -> Flags {

@@ -29,7 +29,7 @@ pub struct RegisterSet {
     pub f: Flags,
 }
 
-// Used as a proxy to allow any method to set the value using 
+// Used as a proxy to allow any method to set the value using
 enum Value<'a> {
     RelativeMemory(i16),
     Registry(&'a str),

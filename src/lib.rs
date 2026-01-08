@@ -1,3 +1,4 @@
+pub mod args;
 pub mod binary;
 pub mod flags;
 pub mod instruction;
@@ -24,23 +25,11 @@ use utils::*;
 
 use std::fs::OpenOptions;
 
-// With the "paw" feature enabled in structopt
-#[derive(structopt::StructOpt)]
-pub struct Args {
-    /// GBN file to execute
-    #[structopt(short = "g", long = "gba")]
-    pub gba: String,
-
-    /// Error Log path
-    #[structopt(long = "log_path", default_value = "error.log")]
-    pub err_log: String,
-}
-
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
-pub fn rom_exec(args: Args) -> Result<(), io::Error> {
+pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
     print_header("LOADING ROM".to_string());
-    let mut f = File::open(args.gba)?;
+    let mut f = File::open(args.load_rom)?;
     let session = load(&mut f)?;
     let rom_size = session.memory.rom_size;
 

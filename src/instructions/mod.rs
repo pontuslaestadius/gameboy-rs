@@ -1,8 +1,8 @@
 use super::binary::*;
 use super::share::*;
 use crate::Rom;
-use std::io;
 use crate::utils::*;
+use std::io;
 
 impl SmartBinary {
     /// Flips the values from 1 to 0 and 0 to 1.
@@ -33,11 +33,7 @@ impl SmartBinary {
 
     pub fn x_y_z_p_q(&self) -> [u8; 5] {
         let orev = |x: bool| {
-            if x {
-                1
-            } else {
-                0
-            }
+            if x { 1 } else { 0 }
         };
 
         // x = the opcode's 1st octal digit (i.e. bits 7-6)
@@ -65,7 +61,11 @@ impl SmartBinary {
 two prefix bytes,  displacement byte,  opcode
 */
 
-pub fn step_bytes<'a, T: Into<u16>>(rom: &'a Rom, pc: &mut u16, count: T) -> Result<Vec<&'a u8>, io::Error> {
+pub fn step_bytes<'a, T: Into<u16>>(
+    rom: &'a Rom,
+    pc: &mut u16,
+    count: T,
+) -> Result<Vec<&'a u8>, io::Error> {
     let mut bytes: Vec<&u8> = Vec::new();
     let count = count.into();
 
@@ -368,11 +368,7 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
         let list2: &SmartBinary = vec_smart_binaries.get(1).unwrap();
 
         let orev = |x: bool| {
-            if x {
-                1
-            } else {
-                0
-            }
+            if x { 1 } else { 0 }
         };
 
         list[0] = orev(list1.zer);
