@@ -73,9 +73,7 @@ impl SmartBinary {
 
     /// Creates a smartbinary from a list.
     pub fn from_list(list: [u8; 8]) -> SmartBinary {
-        let convert_u8b = |x| {
-            x == 1
-        };
+        let convert_u8b = |x| x == 1;
 
         SmartBinary {
             zer: convert_u8b(list[0]),

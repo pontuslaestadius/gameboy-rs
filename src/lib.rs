@@ -16,17 +16,16 @@ use instruction::Instruction;
 use log::info;
 use memory::Memory;
 use registers::Registers;
-use rom::Rom;
 use session::Session;
 use share::*;
-use std::fs::File;
 use std::io;
-use std::io::prelude::*;
 use utils::*;
 
 use std::fs::OpenOptions;
 
 use log::LevelFilter;
+
+use crate::rom::LoadError;
 
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
@@ -37,32 +36,30 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
     }
 
     print_header("LOADING ROM".to_string());
-    let mut f = File::open(args.load_rom)?;
-    let session = load(&mut f)?;
-    let rom_size = session.memory.rom_size;
+    match rom::load_rom(&args.load_rom) {
+        Ok(session) => {
+            let rom_size = session.memory.rom_size;
 
-    print_header(format!("RUNNING ({})", print_size(rom_size)));
-    // Starts the main read loop.
-    let invalid = read_loop(session)?;
+            print_header(format!("RUNNING ({})", print_size(rom_size)));
+            // Starts the main read loop.
+            let invalid = read_loop(session)?;
 
-    if args.test {
-        // // Number of valid op codes identified.
-        let valid = rom_size - invalid; // TODO inaccurate, because prefixed and unprefixed OPCODES.
-        let fault_rate = invalid as f64 / ((valid + invalid) as f64) * 100.0;
-        info!("----------- POST-RUN -----------");
-        info!("valid: {}", pretty(valid as f64));
-        info!("invalid: {}", pretty(invalid as f64));
-        info!("fault rate: {}%", pretty(fault_rate));
+            if args.test {
+                // // Number of valid op codes identified.
+                let valid = rom_size - invalid; // TODO inaccurate, because prefixed and unprefixed OPCODES.
+                let fault_rate = invalid as f64 / ((valid + invalid) as f64) * 100.0;
+                info!("----------- POST-RUN -----------");
+                info!("valid: {}", pretty(valid as f64));
+                info!("invalid: {}", pretty(invalid as f64));
+                info!("fault rate: {}%", pretty(fault_rate));
+            }
+        }
+        Err(e) => {
+            panic!("Error: {:?}", e);
+        }
     }
 
     Ok(())
-}
-
-// Loads in a file as a rom and returns a Session.
-fn load(file: &mut File) -> Result<Session, io::Error> {
-    let mut buffer: Vec<u8> = Vec::new();
-    let _ = file.read_to_end(&mut buffer)?;
-    Ok(Session::new(buffer))
 }
 
 /// Reads op code forever and is the main loop for the emulation.

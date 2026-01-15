@@ -1,6 +1,6 @@
 use super::binary::*;
 use super::share::*;
-use crate::Rom;
+use crate::rom::Rom;
 use crate::utils::*;
 use std::io;
 
