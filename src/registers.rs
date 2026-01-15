@@ -37,6 +37,12 @@ enum Value<'a> {
     U16(u16),
 }
 
+impl Default for RegisterSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RegisterSet {
     pub fn new() -> RegisterSet {
         RegisterSet {
@@ -93,6 +99,12 @@ impl fmt::Debug for Registers {
             to_hex(self.passive.hl()),
             to_hex(self.sp),
         )
+    }
+}
+
+impl Default for Registers {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -185,7 +197,7 @@ impl Registers {
     pub fn rlca(&mut self) {
         // get Most Significant Bit, and convert to bool.
         let msb: bool = (self.active.a & 0x80) == 128;
-        self.active.a = self.active.a << 1;
+        self.active.a <<= 1;
         self.active.a += msb as u8;
 
         self.active.f.carry = msb;

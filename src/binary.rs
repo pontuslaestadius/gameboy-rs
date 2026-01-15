@@ -74,7 +74,7 @@ impl SmartBinary {
     /// Creates a smartbinary from a list.
     pub fn from_list(list: [u8; 8]) -> SmartBinary {
         let convert_u8b = |x| {
-            if x == 1 { true } else { false }
+            x == 1
         };
 
         SmartBinary {
@@ -173,7 +173,7 @@ impl SmartBinary {
         for i in 1..list.len() {
             let i = list.len() - i;
             result += list[i] as i16 * multiplier as i16;
-            multiplier = multiplier * 2;
+            multiplier *= 2;
         }
 
         // Multiply the result with the negative.

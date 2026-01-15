@@ -13,6 +13,7 @@ pub mod utils;
 use binary::SmartBinary;
 use flags::Flags;
 use instruction::Instruction;
+use log::info;
 use memory::Memory;
 use registers::Registers;
 use rom::Rom;
@@ -25,9 +26,16 @@ use utils::*;
 
 use std::fs::OpenOptions;
 
+use log::LevelFilter;
+
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
 pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
+    if let Some(log_path) = args.log_path {
+        OpenOptions::new().write(true).create(true);
+        simple_logging::log_to_file(log_path, LevelFilter::Info)?;
+    }
+
     print_header("LOADING ROM".to_string());
     let mut f = File::open(args.load_rom)?;
     let session = load(&mut f)?;
@@ -35,16 +43,17 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
 
     print_header(format!("RUNNING ({})", print_size(rom_size)));
     // Starts the main read loop.
-    // let invalid = read_loop(session, &args.err_log)?;
+    let invalid = read_loop(session)?;
 
-    // // Number of valid op codes identified.
-    // let valid = rom_size - invalid; // TODO inaccurate, because prefixed and unprefixed OPCODES.
-    // let fault_rate = invalid as f64 / ((valid + invalid) as f64) * 100.0;
-
-    // println!("----------- POST-RUN -----------");
-    // println!("valid: {}", pretty(valid as f64));
-    // println!("invalid: {}", pretty(invalid as f64));
-    // println!("fault rate: {}%", pretty(fault_rate));
+    if args.test {
+        // // Number of valid op codes identified.
+        let valid = rom_size - invalid; // TODO inaccurate, because prefixed and unprefixed OPCODES.
+        let fault_rate = invalid as f64 / ((valid + invalid) as f64) * 100.0;
+        info!("----------- POST-RUN -----------");
+        info!("valid: {}", pretty(valid as f64));
+        info!("invalid: {}", pretty(invalid as f64));
+        info!("fault rate: {}%", pretty(fault_rate));
+    }
 
     Ok(())
 }
@@ -59,8 +68,8 @@ fn load(file: &mut File) -> Result<Session, io::Error> {
 /// Reads op code forever and is the main loop for the emulation.
 /// Will only return anything if it is either done emulating, or
 /// if an error occured that made it panic.
-fn read_loop(mut session: Session, path: &str) -> Result<usize, io::Error> {
-    let mut file = OpenOptions::new().write(true).create(true).open(path)?;
+fn read_loop(mut session: Session) -> Result<usize, io::Error> {
+    // let mut file = OpenOptions::new().write(true).create(true).open(path)?;
 
     // Counts the number of invalid op codes read.
     let mut invalid: usize = 0;
@@ -68,10 +77,10 @@ fn read_loop(mut session: Session, path: &str) -> Result<usize, io::Error> {
     // While pointer counter is on a valid index.
     loop {
         if invalid > 1000 {
-            println!("Too many invalid instructions, stopping...");
+            info!("Too many invalid instructions, stopping...");
             break;
         }
-        println!("{:?}", session.registers);
+        info!("{:?}", session.registers);
         // TODO replace with a permanent loop.
         // let instruction: Instruction = session.fetch_next()?;
 
@@ -80,8 +89,7 @@ fn read_loop(mut session: Session, path: &str) -> Result<usize, io::Error> {
         match session.next() {
             Ok(()) => (),
             Err(e) => {
-                file.write_all(format!("{:?}", e).as_bytes())?;
-                file.write(b"\n")?;
+                info!("{:?}\n", e);
                 invalid += 1;
             }
         }

@@ -19,11 +19,11 @@ impl fmt::Debug for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let prefix = match &self.prefix {
             Some(x) => format!("Prefix: {:?}, ", x),
-            None => format!(""),
+            None => String::new(),
         };
         let displacement = match self.displacement {
             Some(x) => format!("displacement: {:?}, ", x),
-            None => format!(""),
+            None => String::new(),
         };
         write!(
             f,

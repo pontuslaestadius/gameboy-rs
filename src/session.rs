@@ -35,7 +35,7 @@ impl Session {
                 return Err(instruction);
             }
 
-            // _ => println!("{}", formatted_opcode) // TODO replace with execution.
+            // _ => info!("{}", formatted_opcode) // TODO replace with execution.
             _ => (),
         }
 
@@ -350,7 +350,7 @@ impl Session {
     //     let byte = self.read(1u16);
     //     let binary: SmartBinary = SmartBinary::new(byte);
 
-    //     println!("{:x}", byte);
+    //     info!("{:x}", byte);
 
     //     // Check for a prefix byte.
     //     let (prefix, (mut opcode, opcodedata)) = match check_prefix_opcodes(&binary) {

@@ -1,5 +1,6 @@
 use crate::Instruction;
 use human_format::{Formatter, Scales};
+use log::info;
 use std::fs::OpenOptions;
 use std::io;
 use std::io::prelude::*;
@@ -13,7 +14,7 @@ pub fn print_header(str: String) {
     for _ in 0..(24 - str.len() / 2) {
         padding.push('-');
     }
-    println!("{1} {0} {1}", str, padding);
+    info!("{1} {0} {1}", str, padding);
 }
 
 /// Pretty-formatting size.
@@ -33,7 +34,7 @@ pub fn int(val: &str) -> u16 {
 
 pub fn str_to_code(code: &str) -> [Option<char>; 2] {
     let mut chars = code.chars();
-    let first = chars.nth(0);
+    let first = chars.next();
     let second = chars.nth(1);
     [first, second]
 }
@@ -55,7 +56,7 @@ pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
 
     for item in list.iter().rev() {
         result += item * multiplier;
-        multiplier = multiplier * 2;
+        multiplier *= 2;
     }
     result
 }
@@ -66,7 +67,7 @@ pub fn octal_digit_from_binary_list_u16(list: &[u8]) -> u16 {
 
     for item in list.iter().rev() {
         result += *item as u16 * multiplier as u16;
-        multiplier = multiplier * 2;
+        multiplier *= 2;
     }
     result
 }

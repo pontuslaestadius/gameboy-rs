@@ -73,7 +73,7 @@ pub fn step_bytes<'a, T: Into<u16>>(
         bytes.push(rom.content.get((*pc + i) as usize).unwrap());
     }
 
-    *pc = *pc + count;
+    *pc += count;
 
     Ok(bytes)
 }
@@ -344,7 +344,7 @@ pub fn bytes_as_octal_signed(vec: Vec<&u8>) -> i8 {
         panic!("octal signed len > 1 not implemented");
     }
 
-    let smartbinary = SmartBinary::new(**vec.get(0).unwrap());
+    let smartbinary = SmartBinary::new(**vec.first().unwrap());
     smartbinary.as_i8()
 }
 
@@ -357,7 +357,7 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
 
     // This part only works for 2 or 1 byte.
 
-    let list1: &SmartBinary = vec_smart_binaries.get(0).unwrap();
+    let list1: &SmartBinary = vec_smart_binaries.first().unwrap();
 
     if vec_smart_binaries.len() > 1 {
         // Join the lists.
@@ -380,7 +380,7 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
         list[6] = orev(list1.six);
         list[7] = orev(list1.sev);
 
-        list[0 + 8] = orev(list2.zer);
+        list[8] = orev(list2.zer);
         list[1 + 8] = orev(list2.one);
         list[2 + 8] = orev(list2.two);
         list[3 + 8] = orev(list2.thr);
