@@ -1,13 +1,16 @@
 use super::error::LoadError;
 use crate::rom::validation::validate_extension;
 use crate::*;
+use log::info;
 use std::fs;
 use std::path::Path;
 
 pub fn load_rom(path: &Path) -> Result<Session, LoadError> {
+    info!("Loading ROM...");
     validate_extension(path)?;
 
     let buffer = fs::read(path)?;
+    info!("ROM size: {}", buffer.len());
     Ok(Session::new(buffer))
 }
 

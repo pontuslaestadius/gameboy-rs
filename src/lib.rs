@@ -1,6 +1,6 @@
 pub mod args;
 pub mod binary;
-pub mod flags;
+pub mod cpu;
 pub mod instruction;
 pub mod instructions;
 pub mod memory;
@@ -11,7 +11,6 @@ pub mod share;
 pub mod utils;
 
 use binary::SmartBinary;
-use flags::Flags;
 use instruction::Instruction;
 use log::info;
 use memory::Memory;
@@ -25,8 +24,6 @@ use std::fs::OpenOptions;
 
 use log::LevelFilter;
 
-use crate::rom::LoadError;
-
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
 pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
@@ -35,7 +32,6 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
         simple_logging::log_to_file(log_path, LevelFilter::Info)?;
     }
 
-    print_header("LOADING ROM".to_string());
     match rom::load_rom(&args.load_rom) {
         Ok(session) => {
             let rom_size = session.memory.rom_size;
@@ -66,8 +62,6 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
 /// Will only return anything if it is either done emulating, or
 /// if an error occured that made it panic.
 fn read_loop(mut session: Session) -> Result<usize, io::Error> {
-    // let mut file = OpenOptions::new().write(true).create(true).open(path)?;
-
     // Counts the number of invalid op codes read.
     let mut invalid: usize = 0;
 

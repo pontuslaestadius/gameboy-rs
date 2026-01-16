@@ -1,6 +1,6 @@
 [package]
 name = "gameboy_rs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Pontus Laestadius <pontus.laestadius@gmail.com>"]
 
@@ -9,3 +9,5 @@ clap = { version = "4.5.54", features = ["derive"] }
 human_format = "1.0.3"
 log = "0.4.29"
 simple-logging = "2.0.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"

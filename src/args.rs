@@ -11,6 +11,8 @@ pub struct Args {
     pub load_rom: PathBuf,
 
     // Run the rom in non-interactive "test" mode.
+    // Additional operations will be performed.
+    // statistics will be gathered during runtime.
     #[arg(long)]
     pub test: bool,
 

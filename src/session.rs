@@ -1,5 +1,10 @@
+use crate::cpu::opcode::opcode_loader::Root;
+use crate::cpu::opcode::opcode_parse_json::load_Json;
 use crate::share::*;
+use crate::utils::to_hex;
 use crate::{Instruction, Memory, Registers};
+use log::info;
+use serde_json::to_vec_pretty;
 use std::{thread, time};
 
 /// https://8bitnotes.com/2017/05/z80-timing/
@@ -16,6 +21,7 @@ const T_CYCLE: time::Duration = time::Duration::from_nanos(250);
 pub struct Session {
     pub registers: Registers,
     pub memory: Memory,
+    pub table: Root,
 }
 
 impl Session {
@@ -23,6 +29,7 @@ impl Session {
         Session {
             memory: Memory::new(buffer),
             registers: Registers::new(),
+            table: load_Json(),
         }
     }
 
@@ -56,12 +63,22 @@ impl Session {
     }
 
     pub fn next(&mut self) -> Result<(), String> {
+        let byte = self.read8();
+
+        let op = if byte == 0xCB {
+            let cb = self.read8();
+            let hex_key = format!("{:#04X?}", cb);
+            self.table.cbprefixed.get(&hex_key)
+        } else {
+            let hex_key = format!("{:#04X?}", byte);
+            self.table.unprefixed.get(&hex_key)
+        };
+        info!("next byte: {:#04X?}, op: {:?}", byte, op);
         // Decides if the instruction is implemented, and working as intended.
+
         let mut result: Result<(), String> = Ok(());
         // Most instructions take 4 cycles, so it is the default value.
         let mut cycles = 4;
-
-        let byte = self.read8();
 
         match byte {
             0 => {
