@@ -33,7 +33,7 @@ impl From<io::Error> for LoadError {
 
 mod tests {
 
-    use super::LoadError;
+    use super::*;
 
     #[test]
     fn test_display_missing_extension() {

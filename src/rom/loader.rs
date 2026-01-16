@@ -15,6 +15,7 @@ pub fn load_rom(path: &Path) -> Result<Session, LoadError> {
 }
 
 mod tests {
+
     use super::*;
 
     #[test]

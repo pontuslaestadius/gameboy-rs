@@ -352,7 +352,7 @@ pub fn bytes_as_octal(vec: Vec<&u8>) -> Result<u16, io::Error> {
     let mut vec_smart_binaries: Vec<SmartBinary> = Vec::new();
 
     for item in vec.iter() {
-        vec_smart_binaries.push(SmartBinary::new(*item.clone()));
+        vec_smart_binaries.push(SmartBinary::new(**item));
     }
 
     // This part only works for 2 or 1 byte.

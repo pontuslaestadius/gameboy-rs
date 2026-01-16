@@ -1,10 +1,6 @@
-use crate::cpu::opcode::opcode_loader::Root;
-use crate::cpu::opcode::opcode_parse_json::load_Json;
-use crate::share::*;
-use crate::utils::to_hex;
-use crate::{Instruction, Memory, Registers};
-use log::info;
-use serde_json::to_vec_pretty;
+// use crate::cpu::opcode::opcode_parse_json::load_Json;
+use crate::instruction::{CB_OPCODES, Mnemonic, OPCODES};
+use crate::{Memory, Registers};
 use std::{thread, time};
 
 /// https://8bitnotes.com/2017/05/z80-timing/
@@ -21,7 +17,7 @@ const T_CYCLE: time::Duration = time::Duration::from_nanos(250);
 pub struct Session {
     pub registers: Registers,
     pub memory: Memory,
-    pub table: Root,
+    // pub table: Root,
 }
 
 impl Session {
@@ -29,26 +25,26 @@ impl Session {
         Session {
             memory: Memory::new(buffer),
             registers: Registers::new(),
-            table: load_Json(),
+            // table: load_Json(),
         }
     }
 
-    pub fn execute(&mut self, instruction: Instruction) -> Result<(), Instruction> {
-        let _formatted_opcode: String = format!("{:?}", instruction.opcode); // TODO remove.
+    // pub fn execute(&mut self, instruction: Instruction) -> Result<(), Instruction> {
+    //     let _formatted_opcode: String = format!("{:?}", instruction.opcode); // TODO remove.
 
-        match instruction.opcode {
-            // Loops for invalid opcodes and stores them in the log file.
-            Opcode::INVALID(_) => {
-                return Err(instruction);
-            }
+    //     match instruction.opcode {
+    //         // Loops for invalid opcodes and stores them in the log file.
+    //         Opcode::INVALID(_) => {
+    //             return Err(instruction);
+    //         }
 
-            // _ => info!("{}", formatted_opcode) // TODO replace with execution.
-            _ => (),
-        }
+    //         // _ => info!("{}", formatted_opcode) // TODO replace with execution.
+    //         _ => (),
+    //     }
 
-        // TODO
-        Ok(())
-    }
+    //     // TODO
+    //     Ok(())
+    // }
 
     pub fn read16(&mut self) -> u16 {
         let p = self.registers.pc as usize;
@@ -67,296 +63,309 @@ impl Session {
 
         let op = if byte == 0xCB {
             let cb = self.read8();
-            let hex_key = format!("{:#04X?}", cb);
-            self.table.cbprefixed.get(&hex_key)
+            CB_OPCODES[cb as usize]
         } else {
-            let hex_key = format!("{:#04X?}", byte);
-            self.table.unprefixed.get(&hex_key)
+            // let hex_key = format!("{:#04X?}", byte);
+            // self.table.unprefixed.get(&hex_key)
+            OPCODES[byte as usize]
         };
-        info!("next byte: {:#04X?}, op: {:?}", byte, op);
         // Decides if the instruction is implemented, and working as intended.
 
-        let mut result: Result<(), String> = Ok(());
-        // Most instructions take 4 cycles, so it is the default value.
-        let mut cycles = 4;
+        if let Some(instruction) = op {
+            match instruction.mnemonic {
+                Mnemonic::JP => {
+                    println!("Code: {:?}", instruction);
+                    // We can read here without mutating, as we need to move the PC counter anyways.
+                    let p = self.registers.pc as usize;
+                    let addr = Registers::join(self.memory.data[p], self.memory.data[p + 1]);
+                    self.registers.pc = addr;
 
-        match byte {
-            0 => {
-                // NOP
-                // Used for wasting cycles, and thus, waiting.
+                    // So we have 1 byte, the length is 2 bytes more.
+                    // So we read 2 bytes as u16, and jump there?
+                }
+                Mnemonic::NOP => (),
+                _ => {
+                    panic!(
+                        "No handler exists for {:?} | pc: {}",
+                        instruction.mnemonic, self.registers.pc
+                    );
+                }
             }
-            1 => {
-                // LD BC,d16
-                let d16 = self.read16();
-                self.registers.ld_bc(d16);
-                cycles = 12;
+
+            for cycle in instruction.cycles {
+                thread::sleep(T_CYCLE * *cycle as u32);
             }
-            2 => {
-                // LD (BC),A
-                self.registers.ld("BC", "A");
-                cycles = 8;
-            }
-            3 => {
-                // INC BC
-                self.registers.inc_bc();
-                cycles = 8;
-            }
-            4 => {
-                // INC B
-                self.registers.inc8('B');
-            }
-            5 => {
-                // DEC B
-                self.registers.dec8('B');
-            }
-            6 => {
-                // LD B,d8
-                let d8 = self.read8();
-                self.registers.ld8('B', d8);
-                cycles = 8;
-            }
-            7 => {
-                self.registers.rlca();
-            }
-            // 8 => {
-            //     // LD (a16),SP
-            //     let data = Registers::join(self.read(1u16), self.read(1u16));
-            //     self.registers.set_sp(data);
-            //     cycles = 20;
-            // }
-            11 => {
-                // DEC BC
-                self.registers.dec_bc();
-                cycles = 8;
-            }
-            12 => {
-                // INC C
-                self.registers.inc8('C');
-            }
-            13 => {
-                // DEC C
-                self.registers.dec8('C');
-            }
-            28 => {
-                // INC E
-                self.registers.inc8('E');
-            }
-            29 => {
-                // DEC E
-                self.registers.dec8('E');
-            }
-            33 => {
-                // LD HL,d16
-                let d16 = self.read16();
-                self.registers.ld_hc(d16);
-                cycles = 12;
-            }
-            36 => {
-                // INC H
-                self.registers.inc8('H');
-            }
-            37 => {
-                // DEC H
-                self.registers.dec8('H');
-            }
-            44 => {
-                // INC L
-                self.registers.inc8('L');
-            }
-            45 => {
-                // DEC L
-                self.registers.dec8('L');
-            }
-            46 => {
-                // LD L,d8
-                let d8 = self.read8();
-                self.registers.ld8('L', d8);
-                cycles = 8;
-            }
-            60 => {
-                // INC A
-                self.registers.inc8('A');
-            }
-            61 => {
-                // INC A
-                self.registers.dec8('A');
-            }
-            64 => {
-                // LD B,B
-                self.registers.ld8('B', self.registers.b());
-            }
-            65 => {
-                // LD B,C
-                self.registers.ld8('B', self.registers.c());
-            }
-            66 => {
-                // LD B,D
-                self.registers.ld8('B', self.registers.d());
-            }
-            67 => {
-                // LD B,E
-                self.registers.ld8('B', self.registers.e());
-            }
-            68 => {
-                // LD B,H
-                self.registers.ld8('B', self.registers.h());
-            }
-            69 => {
-                // LD B,(HL)
-                self.registers.ld("B", "HL");
-            }
-            74 => {
-                // LD C,D
-                self.registers.ld8('C', self.registers.d());
-            }
-            75 => {
-                // LD C,E
-                self.registers.ld8('C', self.registers.e());
-            }
-            // 234 => {
-            //     // LD (a16),A
-            // }
-            81 => {
-                // LD D,C
-                self.registers.ld("D", "C");
-            }
-            82 => {
-                // LD D,D
-                self.registers.ld("D", "D");
-            }
-            83 => {
-                // LD D,E
-                self.registers.ld("D", "E");
-            }
-            84 => {
-                // LD D,H
-                self.registers.ld("D", "H");
-            }
-            85 => {
-                // LD D,L
-                self.registers.ld("D", "L");
-            }
-            86 => {
-                // LD D,(HL)
-                self.registers.ld("D", "HL");
-                cycles = 8;
-            }
-            87 => {
-                // LD D,A
-                self.registers.ld("D", "A");
-            }
-            88 => {
-                // LD E,B
-                self.registers.ld("E", "B");
-            }
-            89 => {
-                // LD E,C
-                self.registers.ld("E", "C");
-            }
-            90 => {
-                // LD E,D
-                self.registers.ld("E", "D");
-            }
-            91 => {
-                // LD E,E
-                self.registers.ld("E", "E");
-            }
-            92 => {
-                // LD E,H
-                self.registers.ld("E", "H");
-            }
-            93 => {
-                // LD E,L
-                self.registers.ld("E", "L");
-            }
-            94 => {
-                // LD E,(HL)
-                self.registers.ld("E", "HL");
-                cycles = 8;
-            }
-            95 => {
-                // LD E,A
-                self.registers.ld("E", "A");
-            }
-            96 => {
-                // LD H,B
-                self.registers.ld("H", "B");
-            }
-            97 => {
-                // LD H,C
-                self.registers.ld("H", "C");
-            }
-            98 => {
-                // LD H,D
-                self.registers.ld("H", "D");
-            }
-            99 => {
-                // LD H,E
-                self.registers.ld("H", "E");
-            }
-            100 => {
-                // LD H,H
-                self.registers.ld("H", "H");
-            }
-            101 => {
-                // LD H,L
-                self.registers.ld("H", "L");
-            }
-            102 => {
-                // LD H,(HL)
-                self.registers.ld("H", "HL");
-                cycles = 8;
-            }
-            103 => {
-                // LD H,A
-                self.registers.ld("H", "A");
-            }
-            104 => {
-                // LD L,B
-                self.registers.ld("L", "B");
-            }
-            105 => {
-                // LD L,C
-                self.registers.ld("L", "C");
-            }
-            106 => {
-                // LD L,D
-                self.registers.ld("L", "D");
-            }
-            107 => {
-                // LD L,E
-                self.registers.ld("L", "E");
-            }
-            108 => {
-                // LD L,H
-                self.registers.ld("L", "H");
-            }
-            109 => {
-                // LD L,L
-                self.registers.ld("L", "L");
-            }
-            110 => {
-                // LD L,(HL)
-                self.registers.ld("L", "HL");
-            }
-            111 => {
-                // LD L,A
-                self.registers.ld("L", "A");
-            }
-            154 => {
-                self.registers.sub('C');
-            }
-            _ => {
-                result = Err(format!(
-                    "no implementation found for (hex: {:x}, byte: {})",
-                    byte, byte
-                ));
-            }
+        } else {
+            panic!("Failed to retrieve opcode for: {:#04X?}", byte);
         }
 
-        thread::sleep(T_CYCLE * cycles);
+        // let mut result: Result<(), String> = Ok(());
+        return Ok(());
 
-        result
+        // match byte {
+        //     0 => {
+        //         // NOP
+        //         // Used for wasting cycles, and thus, waiting.
+        //     }
+        //     1 => {
+        //         // LD BC,d16
+        //         let d16 = self.read16();
+        //         self.registers.ld_bc(d16);
+        //     }
+        //     2 => {
+        //         // LD (BC),A
+        //         self.registers.ld("BC", "A");
+        //     }
+        //     3 => {
+        //         // INC BC
+        //         self.registers.inc_bc();
+        //     }
+        //     4 => {
+        //         // INC B
+        //         self.registers.inc8('B');
+        //     }
+        //     5 => {
+        //         // DEC B
+        //         self.registers.dec8('B');
+        //     }
+        //     6 => {
+        //         // LD B,d8
+        //         let d8 = self.read8();
+        //         self.registers.ld8('B', d8);
+        //     }
+        //     7 => {
+        //         self.registers.rlca();
+        //     }
+        //     // 8 => {
+        //     //     // LD (a16),SP
+        //     //     let data = Registers::join(self.read(1u16), self.read(1u16));
+        //     //     self.registers.set_sp(data);
+        //     // }
+        //     11 => {
+        //         // DEC BC
+        //         self.registers.dec_bc();
+        //     }
+        //     12 => {
+        //         // INC C
+        //         self.registers.inc8('C');
+        //     }
+        //     13 => {
+        //         // DEC C
+        //         self.registers.dec8('C');
+        //     }
+        //     28 => {
+        //         // INC E
+        //         self.registers.inc8('E');
+        //     }
+        //     29 => {
+        //         // DEC E
+        //         self.registers.dec8('E');
+        //     }
+        //     33 => {
+        //         // LD HL,d16
+        //         let d16 = self.read16();
+        //         self.registers.ld_hc(d16);
+        //     }
+        //     36 => {
+        //         // INC H
+        //         self.registers.inc8('H');
+        //     }
+        //     37 => {
+        //         // DEC H
+        //         self.registers.dec8('H');
+        //     }
+        //     44 => {
+        //         // INC L
+        //         self.registers.inc8('L');
+        //     }
+        //     45 => {
+        //         // DEC L
+        //         self.registers.dec8('L');
+        //     }
+        //     46 => {
+        //         // LD L,d8
+        //         let d8 = self.read8();
+        //         self.registers.ld8('L', d8);
+        //     }
+        //     60 => {
+        //         // INC A
+        //         self.registers.inc8('A');
+        //     }
+        //     61 => {
+        //         // INC A
+        //         self.registers.dec8('A');
+        //     }
+        //     64 => {
+        //         // LD B,B
+        //         self.registers.ld8('B', self.registers.b());
+        //     }
+        //     65 => {
+        //         // LD B,C
+        //         self.registers.ld8('B', self.registers.c());
+        //     }
+        //     66 => {
+        //         // LD B,D
+        //         self.registers.ld8('B', self.registers.d());
+        //     }
+        //     67 => {
+        //         // LD B,E
+        //         self.registers.ld8('B', self.registers.e());
+        //     }
+        //     68 => {
+        //         // LD B,H
+        //         self.registers.ld8('B', self.registers.h());
+        //     }
+        //     69 => {
+        //         // LD B,(HL)
+        //         self.registers.ld("B", "HL");
+        //     }
+        //     74 => {
+        //         // LD C,D
+        //         self.registers.ld8('C', self.registers.d());
+        //     }
+        //     75 => {
+        //         // LD C,E
+        //         self.registers.ld8('C', self.registers.e());
+        //     }
+        //     // 234 => {
+        //     //     // LD (a16),A
+        //     // }
+        //     81 => {
+        //         // LD D,C
+        //         self.registers.ld("D", "C");
+        //     }
+        //     82 => {
+        //         // LD D,D
+        //         self.registers.ld("D", "D");
+        //     }
+        //     83 => {
+        //         // LD D,E
+        //         self.registers.ld("D", "E");
+        //     }
+        //     84 => {
+        //         // LD D,H
+        //         self.registers.ld("D", "H");
+        //     }
+        //     85 => {
+        //         // LD D,L
+        //         self.registers.ld("D", "L");
+        //     }
+        //     86 => {
+        //         // LD D,(HL)
+        //         self.registers.ld("D", "HL");
+        //     }
+        //     87 => {
+        //         // LD D,A
+        //         self.registers.ld("D", "A");
+        //     }
+        //     88 => {
+        //         // LD E,B
+        //         self.registers.ld("E", "B");
+        //     }
+        //     89 => {
+        //         // LD E,C
+        //         self.registers.ld("E", "C");
+        //     }
+        //     90 => {
+        //         // LD E,D
+        //         self.registers.ld("E", "D");
+        //     }
+        //     91 => {
+        //         // LD E,E
+        //         self.registers.ld("E", "E");
+        //     }
+        //     92 => {
+        //         // LD E,H
+        //         self.registers.ld("E", "H");
+        //     }
+        //     93 => {
+        //         // LD E,L
+        //         self.registers.ld("E", "L");
+        //     }
+        //     94 => {
+        //         // LD E,(HL)
+        //         self.registers.ld("E", "HL");
+        //     }
+        //     95 => {
+        //         // LD E,A
+        //         self.registers.ld("E", "A");
+        //     }
+        //     96 => {
+        //         // LD H,B
+        //         self.registers.ld("H", "B");
+        //     }
+        //     97 => {
+        //         // LD H,C
+        //         self.registers.ld("H", "C");
+        //     }
+        //     98 => {
+        //         // LD H,D
+        //         self.registers.ld("H", "D");
+        //     }
+        //     99 => {
+        //         // LD H,E
+        //         self.registers.ld("H", "E");
+        //     }
+        //     100 => {
+        //         // LD H,H
+        //         self.registers.ld("H", "H");
+        //     }
+        //     101 => {
+        //         // LD H,L
+        //         self.registers.ld("H", "L");
+        //     }
+        //     102 => {
+        //         // LD H,(HL)
+        //         self.registers.ld("H", "HL");
+        //     }
+        //     103 => {
+        //         // LD H,A
+        //         self.registers.ld("H", "A");
+        //     }
+        //     104 => {
+        //         // LD L,B
+        //         self.registers.ld("L", "B");
+        //     }
+        //     105 => {
+        //         // LD L,C
+        //         self.registers.ld("L", "C");
+        //     }
+        //     106 => {
+        //         // LD L,D
+        //         self.registers.ld("L", "D");
+        //     }
+        //     107 => {
+        //         // LD L,E
+        //         self.registers.ld("L", "E");
+        //     }
+        //     108 => {
+        //         // LD L,H
+        //         self.registers.ld("L", "H");
+        //     }
+        //     109 => {
+        //         // LD L,L
+        //         self.registers.ld("L", "L");
+        //     }
+        //     110 => {
+        //         // LD L,(HL)
+        //         self.registers.ld("L", "HL");
+        //     }
+        //     111 => {
+        //         // LD L,A
+        //         self.registers.ld("L", "A");
+        //     }
+        //     154 => {
+        //         self.registers.sub('C');
+        //     }
+        //     _ => {
+        //         result = Err(format!(
+        //             "no implementation found for (hex: {:x}, byte: {})",
+        //             byte, byte
+        //         ));
+        //     }
+        // }
+
+        // result
     }
 
     // pub fn fetch_next(&mut self) -> Result<Instruction, io::Error> {

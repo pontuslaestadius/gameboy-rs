@@ -301,7 +301,7 @@ impl Registers {
     pub fn update_flags(&mut self, val: u8) {
         self.active.f.zero = val == 0;
         // Keep this redundant check to align with docs and possible u16 in the future.
-        self.active.f.sign = val > 127 && val <= 255;
+        self.active.f.sign = val > 127 && val < 255;
     }
 
     pub fn sub(&mut self, code: char) {

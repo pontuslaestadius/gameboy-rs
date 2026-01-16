@@ -1,9 +1,5 @@
-use crate::Instruction;
 use human_format::{Formatter, Scales};
 use log::info;
-use std::fs::OpenOptions;
-use std::io;
-use std::io::prelude::*;
 
 pub fn pretty<T: Into<f64>>(size: T) -> String {
     Formatter::new().with_decimals(2).format(size.into())
@@ -40,15 +36,15 @@ pub fn str_to_code(code: &str) -> [Option<char>; 2] {
 }
 
 /// Writes the given vec to the given path.
-pub fn write_vec(path: &str, vec: &Vec<Instruction>) -> Result<(), io::Error> {
-    let mut file = OpenOptions::new().write(true).create(true).open(path)?;
+// pub fn write_vec(path: &str, vec: &Vec<Instruction>) -> Result<(), io::Error> {
+//     let mut file = OpenOptions::new().write(true).create(true).open(path)?;
 
-    for item in vec.iter() {
-        file.write_all(format!("{:?}", item).as_bytes())?;
-        file.write(b"\n")?;
-    }
-    Ok(())
-}
+//     for item in vec.iter() {
+//         file.write_all(format!("{:?}", item).as_bytes())?;
+//         file.write(b"\n")?;
+//     }
+//     Ok(())
+// }
 
 pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
     let mut multiplier = 1;

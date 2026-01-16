@@ -20,5 +20,3 @@ log.txt
 # Log files output by the application
 *.log
 
-# Generated files during teh build process.
-data

@@ -10,13 +10,10 @@ pub mod session;
 pub mod share;
 pub mod utils;
 
-use binary::SmartBinary;
-use instruction::Instruction;
 use log::info;
 use memory::Memory;
 use registers::Registers;
 use session::Session;
-use share::*;
 use std::io;
 use utils::*;
 
