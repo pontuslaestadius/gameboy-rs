@@ -154,7 +154,7 @@ impl Cpu {
 
             info!("CPU: {}", self);
             // Since we increment PC before this, we decrement it in our log.
-            info!("{:#X}. {}", self.pc - 1, code);
+            info!("{:#X}. {:#X}. {}", self.pc - 1, opcode, code);
             let cycles = self.dispatch(code, bus);
             std::thread::sleep(T_CYCLE * cycles as u32);
         }
@@ -197,7 +197,7 @@ impl Cpu {
                 let addr = self.get_reg16(reg);
                 OperandValue::U8(bus.read(addr))
             }
-            instruction::Target::AddrRegister8(_) => todo!(),
+            Target::AddrRegister8(_) => todo!(),
 
             // LDH (a8) - High RAM access (0xFF00 + immediate byte)
             Target::AddrImmediate8 => {
@@ -212,6 +212,40 @@ impl Cpu {
                 self.pc = self.pc.wrapping_add(2);
                 OperandValue::U8(bus.read(addr))
             }
+            // 1. Indirect Read with Side Effects (e.g., LD A, (HL+))
+            Target::AddrRegister16Increment(reg) => {
+                let addr = self.get_reg16(reg);
+                let val = bus.read(addr);
+                self.set_reg16(reg, addr.wrapping_add(1)); // Increment side effect
+                OperandValue::U8(val)
+            }
+            Target::AddrRegister16Decrement(reg) => {
+                let addr = self.get_reg16(reg);
+                let val = bus.read(addr);
+                self.set_reg16(reg, addr.wrapping_sub(1)); // Decrement side effect
+                OperandValue::U8(val)
+            }
+
+            // 2. Relative Offset (JR instructions)
+            Target::Relative8 => {
+                let val = bus.read(self.pc) as i8; // Cast to signed immediately
+                self.pc = self.pc.wrapping_add(1);
+                OperandValue::I8(val) // You need an I8 variant in OperandValue
+            }
+
+            // 3. Conditions (Check flags)
+            Target::Condition(cond) => {
+                let met = match cond {
+                    Condition::NotZero => !self.get_flag(FLAG_Z),
+                    Condition::Zero => self.get_flag(FLAG_Z),
+                    Condition::NotCarry => !self.get_flag(FLAG_C),
+                    Condition::Carry => self.get_flag(FLAG_C),
+                };
+                OperandValue::Bool(met) // You need a Bool variant in OperandValue
+            }
+
+            // 4. RST Vectors
+            Target::Vector(v) => OperandValue::U16(v as u16),
 
             Target::StackPointer => OperandValue::U16(self.sp),
 
@@ -236,6 +270,23 @@ impl Cpu {
                 mmu.write(addr, v);
             }
 
+            (Target::AddrRegister16Decrement(reg), OperandValue::U8(v)) => {
+                let addr = self.get_reg16(reg);
+                mmu.write(addr, v);
+
+                // The side effect: decrement the pointer
+                let new_val = addr.wrapping_sub(1);
+                self.set_reg16(reg, new_val);
+            }
+            (Target::AddrRegister16Increment(reg), OperandValue::U8(v)) => {
+                let addr = self.get_reg16(reg);
+                mmu.write(addr, v);
+
+                // The side effect: increment the pointer
+                let new_val = addr.wrapping_add(1);
+                self.set_reg16(reg, new_val);
+            }
+
             (Target::AddrImmediate16, value) => {
                 // Read the 16-bit address (LSB first)
                 let low = mmu.read(self.pc) as u16;
@@ -250,6 +301,7 @@ impl Cpu {
                         mmu.write(addr, (v & 0xFF) as u8);
                         mmu.write(addr.wrapping_add(1), (v >> 8) as u8);
                     }
+                    _ => todo!(),
                 }
             }
 

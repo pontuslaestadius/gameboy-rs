@@ -6,6 +6,7 @@ authors = ["Pontus Laestadius <pontus.laestadius@gmail.com>"]
 
 [dependencies]
 clap = { version = "4.5.54", features = ["derive"] }
+env_logger = "0.11.8"
 log = "0.4.29"
 simple-logging = "2.0.2"
 

@@ -10,6 +10,7 @@ pub mod session;
 pub mod utils;
 
 use constants::*;
+use env_logger;
 use log::{error, info};
 use memory::Memory;
 use session::Session;
@@ -25,6 +26,8 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
     if let Some(log_path) = args.log_path {
         OpenOptions::new().write(true).create(true);
         simple_logging::log_to_file(log_path, LevelFilter::Info)?;
+    } else {
+        env_logger::builder().format_timestamp(None).init();
     }
 
     match cartridge::load_rom(&args.load_rom) {

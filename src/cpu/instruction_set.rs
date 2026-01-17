@@ -57,22 +57,25 @@ impl InstructionSet for Cpu {
 
         instruction.cycles[0]
     }
-    fn jr(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> u8 {
-        // If only 1 operand, it's unconditional.
-        // If 2 operands, [0] is condition, [1] is offset.
-        let (target, _) = if instruction.operands.len() == 2 {
-            // For now, let's assume we skip the condition if we don't have the enum
-            instruction.operands[1]
+    fn jr(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> u8 {
+        // If there's only one operand (JR e8), it's an unconditional jump.
+        // If there are two (JR NZ, e8), the first is the condition.
+        let (cond_met, offset) = if instr.operands.len() == 2 {
+            (
+                self.read_target(instr.operands[0].0, bus).as_bool(),
+                self.read_target(instr.operands[1].0, bus).as_i8(),
+            )
         } else {
-            instruction.operands[0]
+            (true, self.read_target(instr.operands[0].0, bus).as_i8())
         };
 
-        let offset = self.read_target(target, bus).as_u8() as i8;
+        if cond_met {
+            // Use wrapping_add_signed to safely handle the i8 offset
+            self.pc = self.pc.wrapping_add_signed(offset as i16);
+            return instr.cycles[0]; // Usually the 'taken' cycles
+        }
 
-        // Always branch for now to keep the trace moving
-        self.pc = self.pc.wrapping_add_signed(offset as i16);
-
-        instruction.cycles[0]
+        instr.cycles[1] // Usually the 'not taken' cycles
     }
 
     fn dec(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> u8 {

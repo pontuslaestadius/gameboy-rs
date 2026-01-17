@@ -20,23 +20,80 @@ struct RawOpcode {
 #[derive(Deserialize)]
 struct RawOperand {
     name: String,
+    decrement: Option<bool>,
+    increment: Option<bool>,
     immediate: bool,
 }
 
-fn map_target(name: &str) -> String {
-    match name {
-        "A" => "Target::Register8(Reg8::A)".into(),
-        "B" => "Target::Register8(Reg8::B)".into(),
-        "C" => "Target::Register8(Reg8::C)".into(),
-        "BC" => "Target::Register16(Reg16::BC)".into(),
-        "HL" => "Target::Register16(Reg16::HL)".into(),
-        "n8" => "Target::Immediate8".into(),
-        "n16" => "Target::Immediate16".into(),
-        "a16" => "Target::AddrImmediate16".into(),
-        "a8" => "Target::AddrImmediate8".into(),
-        "(HL)" => "Target::AddrRegister16(Reg16::HL)".into(),
-        n if n.parse::<u8>().is_ok() => format!("Target::Bit({})", n),
-        _ => "Target::Immediate8".into(), // Fallback
+fn map_target(operand: &RawOperand) -> String {
+    // 1. Handle specialized Bit targets first
+    if let Ok(bit) = operand.name.parse::<u8>() {
+        return format!("Target::Bit({})", bit);
+    }
+
+    // --- RST Vectors ---
+    // These usually start with '$' in your JSON (e.g., $00, $08, $10...)
+    if operand.name.starts_with('$') {
+        let hex = operand.name.trim_start_matches('$');
+        let val = u8::from_str_radix(hex, 16).unwrap_or(0);
+        return format!("Target::Vector(0x{:02X})", val);
+    }
+
+    match (
+        operand.name.as_str(),
+        operand.immediate,
+        operand.increment.unwrap_or(false),
+        operand.decrement.unwrap_or(false),
+    ) {
+        // --- 16-bit Pointers with Side Effects ---
+        ("HL", false, true, false) => "Target::AddrRegister16Increment(Reg16::HL)".into(),
+        ("HL", false, false, true) => "Target::AddrRegister16Decrement(Reg16::HL)".into(),
+
+        // --- Standard Indirect Addressing (Memory Pointers) ---
+        // immediate: false usually means it's wrapped in parentheses (HL), (BC), etc.
+        ("HL", false, false, false) => "Target::AddrRegister16(Reg16::HL)".into(),
+        ("BC", false, _, _) => "Target::AddrRegister16(Reg16::BC)".into(),
+        ("DE", false, _, _) => "Target::AddrRegister16(Reg16::DE)".into(),
+        ("C", false, _, _) => "Target::AddrRegister8(Reg8::C)".into(), // For LDH A, (C)
+
+        // --- Standard Direct Register Access ---
+        ("A", true, _, _) => "Target::Register8(Reg8::A)".into(),
+        ("B", true, _, _) => "Target::Register8(Reg8::B)".into(),
+        ("C", true, _, _) => "Target::Register8(Reg8::C)".into(),
+        ("D", true, _, _) => "Target::Register8(Reg8::D)".into(),
+        ("E", true, _, _) => "Target::Register8(Reg8::E)".into(),
+        ("H", true, _, _) => "Target::Register8(Reg8::H)".into(),
+        ("L", true, _, _) => "Target::Register8(Reg8::L)".into(),
+
+        ("AF", true, _, _) => "Target::Register16(Reg16::AF)".into(),
+        ("BC", true, _, _) => "Target::Register16(Reg16::BC)".into(),
+        ("DE", true, _, _) => "Target::Register16(Reg16::DE)".into(),
+        ("HL", true, _, _) => "Target::Register16(Reg16::HL)".into(),
+        ("SP", _, _, _) => "Target::StackPointer".into(),
+
+        // --- Literals and Absolute Addresses ---
+        ("n8", _, _, _) => "Target::Immediate8".into(),
+        ("n16", _, _, _) => "Target::Immediate16".into(),
+        ("a8", _, _, _) => "Target::AddrImmediate8".into(),
+        ("a16", _, _, _) => "Target::AddrImmediate16".into(),
+        // --- Jump Conditions ---
+        ("NZ", _, _, _) => "Target::Condition(Condition::NotZero)".into(),
+        ("Z", _, _, _) => "Target::Condition(Condition::Zero)".into(),
+        ("NC", _, _, _) => "Target::Condition(Condition::NotCarry)".into(),
+        ("C", _, _, _) if operand.immediate => "Target::Condition(Condition::Carry)".into(),
+
+        // --- Relative Address Offset ---
+        // 'e8' is a signed 8-bit displacement used in JR (Jump Relative)
+        ("e8", _, _, _) => "Target::Relative8".into(),
+
+        // --- Fallback/Error Catching ---
+        _ => {
+            println!(
+                "cargo:warning=Unknown target combo: name={}, imm={}, inc={:?}, dec={:?}",
+                operand.name, operand.immediate, operand.increment, operand.decrement
+            );
+            "Target::Immediate8".into()
+        }
     }
 }
 
@@ -110,7 +167,7 @@ fn main() {
                 let mut ops_str = String::new();
                 unique_mnemonics.insert(op.mnemonic.clone());
                 for o in &op.operands {
-                    ops_str.push_str(&format!("({}, {}),", map_target(&o.name), o.immediate));
+                    ops_str.push_str(&format!("({}, {}),", map_target(o), o.immediate));
                 }
                 code.push_str(&format!(
                     "    Some(OpcodeInfo {{ mnemonic: Mnemonic::{}, bytes: {}, cycles: &{:?}, operands: &[{}] }}),\n",
