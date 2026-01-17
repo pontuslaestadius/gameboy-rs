@@ -1,18 +1,13 @@
-DATA_DIR := data
-OPCODES := $(DATA_DIR)/opcodes.json
 
-.PHONY: build run clean
+.PHONY: build run clean release
 
-$(OPCODES):
-	mkdir -p $(DATA_DIR)
-	curl -L https://gbdev.io/gb-opcodes/Opcodes.json -o $@
 
-build: $(OPCODES)
+build:
 	cargo build
 
-run: $(OPCODES)
-	cargo run
+release:
+	cargo build --release
+	cargo  install cargo-strip
+	cargo strip
+	strip target/release/gameboy_rs
 
-clean:
-	cargo clean
-	rm -rf $(DATA_DIR)

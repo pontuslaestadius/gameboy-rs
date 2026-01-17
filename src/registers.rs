@@ -1,6 +1,5 @@
 use crate::utils::*;
 
-#[derive(serde::Deserialize)]
 pub struct Flags {
     // (S) -> Set if the 2-complement value is negative (copy of MSB)
     pub sign: bool,

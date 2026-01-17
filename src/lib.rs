@@ -1,15 +1,12 @@
 pub mod args;
-pub mod binary;
 pub mod cartridge;
 pub mod constants;
 pub mod cpu;
 pub mod instruction;
-pub mod instructions;
 pub mod memory;
 pub mod memory_trait;
 pub mod registers;
 pub mod session;
-pub mod share;
 pub mod utils;
 
 use constants::*;
@@ -17,7 +14,6 @@ use log::{error, info};
 use memory::Memory;
 use session::Session;
 use std::io;
-use utils::*;
 
 use std::fs::OpenOptions;
 
@@ -33,9 +29,6 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
 
     match cartridge::load_rom(&args.load_rom) {
         Ok(session) => {
-            let rom_size = session.memory.rom_size;
-
-            print_header(format!("RUNNING ({})", print_size(rom_size)));
             // Starts the main read loop.
             read_loop(session)?;
         }

@@ -1,11 +1,10 @@
 pub mod immediate;
 pub mod instruction_set;
-pub mod opcode;
+
 pub mod operand;
 pub mod register;
 use crate::instruction::*;
 use crate::*;
-use instruction_set::*;
 
 #[derive(Debug)]
 pub struct Cpu {
@@ -110,6 +109,22 @@ impl Cpu {
             c: res > 0xFF, // In wrapping_sub, a result > 0xFF indicates a borrow occurred
         }
     }
+
+    pub fn set_c(&mut self, value: bool) {
+        self.set_flag(FLAG_C, value);
+    }
+
+    pub fn set_h(&mut self, value: bool) {
+        self.set_flag(FLAG_H, value);
+    }
+
+    pub fn set_n(&mut self, value: bool) {
+        self.set_flag(FLAG_N, value);
+    }
+    pub fn set_z(&mut self, value: bool) {
+        self.set_flag(FLAG_Z, value);
+    }
+
     pub fn get_flag(&self, flag: u8) -> bool {
         (self.f & flag) != 0
     }
@@ -136,7 +151,12 @@ impl Cpu {
 
         if let Some(code) = op {
             // Pass the bus into your execution logic
-            self.execute(code, bus);
+
+            info!("CPU: {}", self);
+            // Since we increment PC before this, we decrement it in our log.
+            info!("{:#X}. {}", self.pc - 1, code);
+            let cycles = self.dispatch(code, bus);
+            std::thread::sleep(T_CYCLE * cycles as u32);
         }
     }
 
@@ -152,79 +172,6 @@ impl Cpu {
 
         (res, z, n, h)
     }
-
-    fn execute(&mut self, instruction: OpcodeInfo, bus: &mut impl memory_trait::Memory) {
-        info!("CPU: {}", self);
-        // Since we increment PC before this, we decrement it in our log.
-        info!("{:#X}. {}", self.pc - 1, instruction);
-        let cycles = match instruction.mnemonic {
-            Mnemonic::JP => self.jp(instruction, bus),
-            Mnemonic::CP => self.cp(instruction, bus),
-            Mnemonic::LD | Mnemonic::LDH => self.ld(instruction, bus),
-            Mnemonic::SUB => self.sub(instruction, bus),
-            Mnemonic::JR => self.jr(instruction, bus),
-            Mnemonic::DEC => self.dec(instruction, bus),
-            Mnemonic::ADD => {
-                let (dest, _) = instruction.operands[0];
-                match dest {
-                    Target::Register16(Reg16::HL) => panic!("Not supported."),
-                    _ => self.add(instruction, bus),
-                }
-            }
-
-            Mnemonic::HALT => {
-                self.halted = true;
-                instruction.cycles[0]
-            }
-            Mnemonic::STOP => {
-                // STOP is technically a 2-byte instruction (0x10 00),
-                // but many emulators treat it as a special halt.
-                self.halted = true;
-                instruction.cycles[0]
-            }
-            Mnemonic::SCF => {
-                // Set Carry Flag
-                self.set_flag(FLAG_C, true);
-                self.set_flag(FLAG_N, false);
-                self.set_flag(FLAG_H, false);
-                instruction.cycles[0]
-            }
-            Mnemonic::CCF => {
-                // Complement Carry Flag (Flip it)
-                let c = self.get_flag(FLAG_C);
-                self.set_flag(FLAG_C, !c);
-                self.set_flag(FLAG_N, false);
-                self.set_flag(FLAG_H, false);
-                instruction.cycles[0]
-            }
-            Mnemonic::CPL => {
-                // Complement Accumulator (A = NOT A)
-                self.a = !self.a;
-                self.set_flag(FLAG_N, true);
-                self.set_flag(FLAG_H, true);
-                instruction.cycles[0]
-            }
-            Mnemonic::DI => {
-                self.ime = false;
-                instruction.cycles[0]
-            }
-            Mnemonic::EI => {
-                self.ime = true;
-                instruction.cycles[0]
-            }
-            Mnemonic::NOP => instruction.cycles[0],
-            _ => {
-                panic!(
-                    "No handler exists for {:?} | pc: {}",
-                    instruction.mnemonic, self.pc
-                );
-            }
-        };
-
-        // If there are two, use index 0 for branched, index 1 for not branched.
-        std::thread::sleep(T_CYCLE * cycles as u32);
-    }
-
     /// Reads the actual value for a given operand target.
     /// This may increment PC if it reads immediate values from memory.
     fn read_target(&mut self, target: Target, bus: &mut impl memory_trait::Memory) -> OperandValue {
@@ -250,6 +197,7 @@ impl Cpu {
                 let addr = self.get_reg16(reg);
                 OperandValue::U8(bus.read(addr))
             }
+            instruction::Target::AddrRegister8(_) => todo!(),
 
             // LDH (a8) - High RAM access (0xFF00 + immediate byte)
             Target::AddrImmediate8 => {
@@ -265,6 +213,8 @@ impl Cpu {
                 OperandValue::U8(bus.read(addr))
             }
 
+            Target::StackPointer => OperandValue::U16(self.sp),
+
             Target::Bit(b) => OperandValue::U8(b),
         }
     }
@@ -278,14 +228,31 @@ impl Cpu {
         match (target, value) {
             (Target::Register8(reg), OperandValue::U8(v)) => self.set_reg8(reg, v),
             (Target::Register16(reg), OperandValue::U16(v)) => self.set_reg16(reg, v),
-            (Target::AddrRegister16(Reg16::HL), OperandValue::U8(v)) => {
-                let addr = self.get_reg16(Reg16::HL);
+            (Target::StackPointer, OperandValue::U16(v)) => self.sp = v,
+            // Matches (HL), (BC), or (DE)
+            // a16 is a common write target (e.g., LD (a16), SP)
+            (Target::AddrRegister16(reg), OperandValue::U8(v)) => {
+                let addr = self.get_reg16(reg);
                 mmu.write(addr, v);
             }
-            // a16 is a common write target (e.g., LD (a16), SP)
-            (Target::AddrImmediate16, _) => {
-                // You'd need to fetch the address from PC first
+
+            (Target::AddrImmediate16, value) => {
+                // Read the 16-bit address (LSB first)
+                let low = mmu.read(self.pc) as u16;
+                let high = mmu.read(self.pc.wrapping_add(1)) as u16;
+                let addr = (high << 8) | low;
+                self.pc = self.pc.wrapping_add(2);
+
+                match value {
+                    OperandValue::U8(v) => mmu.write(addr, v),
+                    OperandValue::U16(v) => {
+                        // e.g., LD (a16), SP writes 16 bits
+                        mmu.write(addr, (v & 0xFF) as u8);
+                        mmu.write(addr.wrapping_add(1), (v >> 8) as u8);
+                    }
+                }
             }
+
             (Target::AddrImmediate8, v) => {
                 // 1. Read the 8-bit offset following the opcode
                 let offset = mmu.read(self.pc);
@@ -297,7 +264,10 @@ impl Cpu {
                 // 3. Write the 8-bit value to that address
                 mmu.write(addr, v.as_u8());
             }
-            _ => panic!("Invalid write target or value mismatch"),
+            _ => panic!(
+                "write_target: Invalid write target or value mismatch, {:?}, {:?}",
+                target, value
+            ),
         }
     }
 
@@ -389,6 +359,15 @@ impl Cpu {
     //         _ => true,
     //     }
     // }
+
+    // Helper for the A-versions
+    fn set_flags_rotate(&mut self, res: u8, carry: bool, is_a_version: bool) {
+        self.set_flag(FLAG_Z, if is_a_version { false } else { res == 0 });
+        self.set_flag(FLAG_N, false);
+        self.set_flag(FLAG_H, false);
+        self.set_flag(FLAG_C, carry);
+    }
+
     fn check_condition_operand(&self, target: Target) -> bool {
         // Note: You'll need to check if your build.rs maps
         // NZ/Z/NC/C to a specific Target variant.
@@ -397,6 +376,21 @@ impl Cpu {
             Target::Register8(Reg8::C) => self.get_flag(FLAG_C),
             // ... handle others ...
             _ => true,
+        }
+    }
+    fn get_reg16_from_target(&self, target: Target) -> u16 {
+        match target {
+            Target::Register16(reg) => self.get_reg16(reg),
+            Target::StackPointer => self.sp,
+            // Add any other 16-bit targets your build.rs might generate
+            _ => panic!("Target {:?} is not a 16-bit register", target),
+        }
+    }
+    fn set_reg16_from_target(&mut self, target: Target, value: u16) {
+        match target {
+            Target::Register16(reg) => self.set_reg16(reg, value),
+            Target::StackPointer => self.sp = value,
+            _ => panic!("Target {:?} is not a 16-bit register", target),
         }
     }
 }

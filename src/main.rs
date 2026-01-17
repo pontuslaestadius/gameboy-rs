@@ -1,5 +1,3 @@
-extern crate human_format;
-
 use clap::Parser;
 
 fn main() -> std::io::Result<()> {

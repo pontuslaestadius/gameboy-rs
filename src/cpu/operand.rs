@@ -1,8 +1,6 @@
-use serde::Deserialize;
-
 use crate::cpu::{immediate::Immediate, register::Register};
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug)]
 pub enum Operand {
     Immediate(Immediate),
     Register(Register),

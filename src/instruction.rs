@@ -1,17 +1,21 @@
+use crate::cpu::Cpu;
 use crate::memory_trait::Memory;
 use std::fmt;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Target {
+    StackPointer,
     Register8(Reg8),
     Register16(Reg16),
     Immediate8,
     Immediate16,
     AddrImmediate16,
-    AddrImmediate8, // for LDH (a8)
-    AddrRegister16(Reg16),
+    AddrImmediate8,        // for LDH (a8)
+    AddrRegister8(Reg8),   // Add this for (C)
+    AddrRegister16(Reg16), // This is for (HL), (BC), (DE)
     Bit(u8),
 }
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum OperandValue {
     U8(u8),
     U16(u16),
@@ -63,6 +67,13 @@ pub struct OpcodeInfo {
     pub operands: &'static [(Target, bool)], // (Target, is_immediate)
 }
 
+impl fmt::Display for Target {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format_target(self, false))?;
+        Ok(())
+    }
+}
+
 impl fmt::Display for OpcodeInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Write the mnemonic (e.g., "LD", "JP")
@@ -84,15 +95,17 @@ impl fmt::Display for OpcodeInfo {
 }
 
 /// Helper to turn Target into standard Assembly syntax
-fn format_target(target: &Target, is_immediate: bool) -> String {
+fn format_target(target: &Target, _is_immediate: bool) -> String {
     match target {
         Target::Register8(reg) => format!("{:?}", reg),
         Target::Register16(reg) => format!("{:?}", reg),
+        Target::StackPointer => format!("sp"),
         Target::Immediate8 => "n8".to_string(),
         Target::Immediate16 => "n16".to_string(),
         Target::AddrImmediate16 => "(a16)".to_string(),
         Target::AddrImmediate8 => "(a8)".to_string(),
         Target::AddrRegister16(reg) => format!("({:?})", reg),
+        Target::AddrRegister8(reg) => format!("({:?})", reg),
         Target::Bit(b) => format!("{}", b),
     }
 }

@@ -1,5 +1,4 @@
 use super::error::LoadError;
-use crate::cartridge::Headers;
 use crate::cartridge::validation::validate_extension;
 use crate::*;
 use log::info;

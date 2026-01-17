@@ -1,7 +1,6 @@
 // build.rs
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::fs::*;
 use std::{env, fs, path::Path};
 
 #[derive(Deserialize)]
@@ -43,11 +42,29 @@ fn map_target(name: &str) -> String {
 
 fn produce_mnemonics_enum(hashset: &HashSet<String>) -> String {
     let mut code = String::new();
-    code.push_str(&format!("\n#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]\n#[allow(non_camel_case_types)]\npub enum Mnemonic {{\n"));
+    code.push_str("\n#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]\n#[allow(non_camel_case_types)]\npub enum Mnemonic {\n");
     for item in hashset {
         code.push_str(&format!("{item},\n"));
     }
-    code.push_str(&format!("}}\n"));
+    code.push_str("}\n");
+    code
+}
+
+fn produce_dispatcher_fn(hashset: &HashSet<String>) -> String {
+    let mut code = String::new();
+    code.push_str("impl Cpu {\n");
+    code.push_str("pub fn dispatch(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> u8 {");
+    // Since we increment PC before this, we decrement it in our log.
+    code.push_str("match instr.mnemonic {\n");
+
+    for mnemonic in hashset {
+        code.push_str(&format!(
+            "Mnemonic::{} => self.{}(instr, bus),\n",
+            mnemonic,
+            mnemonic.to_lowercase(),
+        ));
+    }
+    code.push_str("}\n}\n}\n");
     code
 }
 
@@ -86,6 +103,10 @@ fn main() {
         for i in 0..256 {
             let key = format!("0x{:02X}", i);
             if let Some(op) = table.get(&key) {
+                if op.mnemonic == "PREFIX" || op.mnemonic.starts_with("ILLEGAL") {
+                    code.push_str(&format!("    None,\n",));
+                    continue;
+                }
                 let mut ops_str = String::new();
                 unique_mnemonics.insert(op.mnemonic.clone());
                 for o in &op.operands {
@@ -104,6 +125,7 @@ fn main() {
 
     code.push_str(&produce_mnemonics_enum(&unique_mnemonics));
     code.push_str(&produce_mnemonics_coverage_trait(&unique_mnemonics));
+    code.push_str(&produce_dispatcher_fn(&unique_mnemonics));
 
     fs::write(&dest_path, code).unwrap();
     println!("wrote generated opcodes to: {:?}", dest_path);

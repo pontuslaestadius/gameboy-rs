@@ -1,6 +1,4 @@
-use serde::Deserialize;
-
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug)]
 pub enum Register {
     A,
     B,

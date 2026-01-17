@@ -1,25 +1,3 @@
-use human_format::{Formatter, Scales};
-use log::info;
-
-pub fn pretty<T: Into<f64>>(size: T) -> String {
-    Formatter::new().with_decimals(2).format(size.into())
-}
-
-pub fn print_header(str: String) {
-    let mut padding = String::new();
-    for _ in 0..(24 - str.len() / 2) {
-        padding.push('-');
-    }
-    info!("{1} {0} {1}", str, padding);
-}
-
-/// Pretty-formatting size.
-pub fn print_size(size: usize) -> String {
-    let mut scales = Scales::new();
-    scales.with_base(1024).with_suffixes(vec!["B", "kB", "MB"]);
-    Formatter::new().with_scales(scales).format(size as f64)
-}
-
 pub fn to_hex<T: Into<u16>>(val: T) -> String {
     format!("{:01$x}", val.into(), 2)
 }
