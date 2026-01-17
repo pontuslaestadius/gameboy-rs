@@ -1,22 +1,63 @@
 use super::error::LoadError;
-use crate::rom::validation::validate_extension;
 use crate::*;
-use log::info;
 use std::fs;
 use std::path::Path;
 
 pub fn load_rom(path: &Path) -> Result<Session, LoadError> {
-    info!("Loading ROM...");
     validate_extension(path)?;
 
     let buffer = fs::read(path)?;
-    info!("ROM size: {}", buffer.len());
     Ok(Session::new(buffer))
+}
+
+pub fn validate_extension(path: &Path) -> Result<(), LoadError> {
+    let ext = path
+        .extension()
+        .ok_or(LoadError::MissingExtension)?
+        .to_str()
+        .ok_or(LoadError::MissingExtension)?;
+
+    if !ext.eq_ignore_ascii_case(GAME_BOY_FILE_EXT) {
+        return Err(LoadError::InvalidExtension {
+            expected: GAME_BOY_FILE_EXT,
+            found: ext.to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn test_display_missing_extension() {
+        let err = LoadError::MissingExtension;
+        let msg = format!("{}", err);
+        assert_eq!(msg, "ROM file has no extension");
+    }
+
+    #[test]
+    fn test_display_invalid_extension() {
+        let err = LoadError::InvalidExtension {
+            expected: "gb",
+            found: "txt".to_string(),
+        };
+        let msg = format!("{}", err);
+        assert_eq!(
+            msg,
+            "Invalid ROM file extension: expected 'gb', found 'txt'"
+        );
+    }
+
+    #[test]
+    fn test_display_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "oh no");
+        let err = LoadError::Io(io_err);
+        let msg = format!("{}", err);
+        assert!(msg.contains("I/O error: oh no"));
+    }
 
     #[test]
     fn test_validate_extension_missing() {

@@ -1,18 +1,20 @@
 pub mod args;
 pub mod binary;
+pub mod cartridge;
+pub mod constants;
 pub mod cpu;
 pub mod instruction;
 pub mod instructions;
 pub mod memory;
+pub mod memory_trait;
 pub mod registers;
-pub mod rom;
 pub mod session;
 pub mod share;
 pub mod utils;
 
-use log::info;
+use constants::*;
+use log::{error, info};
 use memory::Memory;
-use registers::Registers;
 use session::Session;
 use std::io;
 use utils::*;
@@ -29,23 +31,13 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
         simple_logging::log_to_file(log_path, LevelFilter::Info)?;
     }
 
-    match rom::load_rom(&args.load_rom) {
+    match cartridge::load_rom(&args.load_rom) {
         Ok(session) => {
             let rom_size = session.memory.rom_size;
 
             print_header(format!("RUNNING ({})", print_size(rom_size)));
             // Starts the main read loop.
-            let invalid = read_loop(session)?;
-
-            if args.test {
-                // // Number of valid op codes identified.
-                let valid = rom_size - invalid; // TODO inaccurate, because prefixed and unprefixed OPCODES.
-                let fault_rate = invalid as f64 / ((valid + invalid) as f64) * 100.0;
-                info!("----------- POST-RUN -----------");
-                info!("valid: {}", pretty(valid as f64));
-                info!("invalid: {}", pretty(invalid as f64));
-                info!("fault rate: {}%", pretty(fault_rate));
-            }
+            read_loop(session)?;
         }
         Err(e) => {
             panic!("Error: {:?}", e);
@@ -58,30 +50,19 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
 /// Reads op code forever and is the main loop for the emulation.
 /// Will only return anything if it is either done emulating, or
 /// if an error occured that made it panic.
-fn read_loop(mut session: Session) -> Result<usize, io::Error> {
-    // Counts the number of invalid op codes read.
-    let mut invalid: usize = 0;
-
+fn read_loop(mut session: Session) -> Result<(), io::Error> {
     // While pointer counter is on a valid index.
     loop {
-        if invalid > 1000 {
-            info!("Too many invalid instructions, stopping...");
-            break;
-        }
-        info!("{:?}", session.registers);
         // TODO replace with a permanent loop.
-        // let instruction: Instruction = session.fetch_next()?;
-
-        // let result = session.execute(instruction);
 
         match session.next() {
             Ok(()) => (),
             Err(e) => {
-                info!("{:?}\n", e);
-                invalid += 1;
+                error!("{:?}\n", e);
+                panic!("Error");
             }
         }
     }
 
-    Ok(invalid)
+    Ok(())
 }

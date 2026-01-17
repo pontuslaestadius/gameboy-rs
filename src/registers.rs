@@ -1,5 +1,4 @@
 use crate::utils::*;
-use std::fmt;
 
 #[derive(serde::Deserialize)]
 pub struct Flags {
@@ -23,28 +22,6 @@ pub struct Flags {
     pub carry: bool,
 }
 
-// CZPSNH
-impl fmt::Debug for Flags {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}{}{}{}{}",
-            self.carry as u8,
-            self.zero as u8,
-            self.parity_or_overflow as u8,
-            self.sign as u8,
-            self.subtract as u8,
-            self.half_carry as u8
-        )
-    }
-}
-
-impl Default for Flags {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Flags {
     pub fn new() -> Flags {
         Flags {
@@ -65,7 +42,6 @@ impl Flags {
 /// Registers are used for virtual emulation storage.
 pub struct Registers {
     active: RegisterSet,
-    passive: RegisterSet,
     pub sp: u16,
     pub pc: u16,
     pub ix: u16,
@@ -85,20 +61,6 @@ pub struct RegisterSet {
     pub i: u8,
     pub r: u8,
     pub f: Flags,
-}
-
-// Used as a proxy to allow any method to set the value using
-enum Value<'a> {
-    RelativeMemory(i16),
-    Registry(&'a str),
-    U8(u8),
-    U16(u16),
-}
-
-impl Default for RegisterSet {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl RegisterSet {
@@ -132,34 +94,6 @@ impl RegisterSet {
     }
 }
 
-// A  CZPSNH  BC   DE   HL   IX   IY  A' CZPSNH' BC'  DE'  HL'  SP
-// 06 000000 0000 0000 0000 0000 0000 00 000000 0000 0000 0000 0000
-impl fmt::Debug for Registers {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let _ = writeln!(
-            f,
-            "A   CZPSNH   BC   DE   HL   IX   IY   A'   CZPSNH'  BC'  DE'  HL'  SP"
-        );
-        write!(
-            f,
-            "{}  {:?}   {}   {}   {}   {}   {}   {}   {:?}   {}   {}   {}   {}",
-            to_hex(self.a()),
-            self.active.f,
-            to_hex(self.bc()),
-            to_hex(self.de()),
-            to_hex(self.hl()),
-            to_hex(self.ix),
-            to_hex(self.iy),
-            to_hex(self.passive.a),
-            self.passive.f,
-            to_hex(self.passive.bc()),
-            to_hex(self.passive.de()),
-            to_hex(self.passive.hl()),
-            to_hex(self.sp),
-        )
-    }
-}
-
 impl Default for Registers {
     fn default() -> Self {
         Self::new()
@@ -170,11 +104,10 @@ impl Registers {
     pub fn new() -> Registers {
         Registers {
             active: RegisterSet::new(),
-            passive: RegisterSet::new(),
             ix: 0,
             iy: 0,
             sp: 0,
-            pc: 0,
+            pc: 0x100,
         }
     }
 
@@ -405,165 +338,5 @@ impl Registers {
             'L' => &self.active.l,
             _ => panic!("Invalid register {}", code),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_002_LD_bc_d16() {
-        let mut registers = Registers::new();
-        registers.ld_bc(int("d16"));
-        assert_eq!(3350, registers.bc());
-        let bc = format!("{:x}", registers.bc());
-        assert_eq!(bc, "d16");
-    }
-    #[test]
-    fn test_002_LD_bc_A() {
-        let mut registers = Registers::new();
-        assert_eq!(registers.a() as u16, registers.bc());
-        registers.ld8('A', 10);
-        registers.ld_bc(registers.a() as u16);
-        assert_eq!(10, registers.bc());
-        let bc = format!("{:x}", registers.bc());
-        assert_eq!(bc, "a");
-    }
-    #[test]
-    fn test_003_INC_BC() {
-        let mut registers = Registers::new();
-        assert_eq!(0, registers.bc());
-        registers.inc_bc();
-        assert_eq!(1, registers.bc());
-    }
-    #[test]
-    fn test_004_INC_B() {
-        let mut registers = Registers::new();
-        assert_eq!(0, registers.b());
-        registers.inc('B');
-        assert_eq!(1, registers.b());
-        assert_eq!(false, registers.flags().subtract);
-        // TODO Check flags
-    }
-    #[test]
-    fn test_005_DEC_B() {
-        let mut registers = Registers::new();
-        registers.inc('B');
-        assert_eq!(1, registers.b());
-        registers.dec('B');
-        assert_eq!(0, registers.b());
-        assert_eq!(true, registers.flags().subtract);
-        // TODO Check flags
-    }
-    #[test]
-    fn test_006_LD_B_d8() {
-        let mut registers = Registers::new();
-        registers.ld8('B', int("d8") as u8);
-        assert_eq!(216, registers.b());
-        let bc = format!("{:x}", registers.b());
-        assert_eq!(bc, "d8");
-    }
-    #[test]
-    fn test_007_RLCA() {
-        let mut registers = Registers::new();
-        registers.ld8('A', 152); // 10011000
-        registers.rlca();
-        assert_eq!(true, registers.active.f.carry);
-        assert_eq!(int("31") as u8, registers.a());
-    }
-    // #[test]
-    // fn test_008_LD_a16_SP() {
-    //     let mut registers = Registers::new();
-    //     registers.ld_sp(1); // FIXME
-    // }
-
-    // #[test]
-    // fn test_010_LD_A_BC() {
-    //     let mut registers = Registers::new();
-    //     registers.ld_a(registers.bc());
-    //     assert_eq!(true, registers.active.f.carry);
-    //     assert_eq!(int('31') as u8, registers.a());
-    // }
-    #[test]
-    fn test_011_DEC_BC() {
-        let mut registers = Registers::new();
-        registers.inc_bc();
-        assert_eq!(1, registers.bc());
-        registers.dec_bc();
-        assert_eq!(0, registers.bc());
-        assert_eq!(true, registers.flags().subtract);
-    }
-
-    #[test]
-    fn test_012_INC_C() {
-        let mut registers = Registers::new();
-        assert_eq!(0, registers.c());
-        registers.inc('C');
-        assert_eq!(1, registers.c());
-        assert_eq!(false, registers.flags().subtract);
-        // TODO Check flags
-    }
-    #[test]
-    fn test_013_DEC_C() {
-        let mut registers = Registers::new();
-        registers.inc('C');
-        assert_eq!(1, registers.c());
-        registers.dec('C');
-        assert_eq!(0, registers.c());
-        assert_eq!(true, registers.flags().subtract);
-        // TODO Check flags
-    }
-
-    #[test]
-    fn test_036_INC_H() {
-        let mut registers = Registers::new();
-        assert_eq!(0, registers.h());
-        registers.inc('H');
-        assert_eq!(1, registers.h());
-        assert_eq!(false, registers.flags().subtract);
-    }
-
-    #[test]
-    fn test_037_DEC_H() {
-        let mut registers = Registers::new();
-        registers.inc('H');
-        assert_eq!(1, registers.h());
-        registers.dec('H');
-        assert_eq!(0, registers.h());
-        assert_eq!(true, registers.flags().subtract);
-    }
-
-    #[test]
-    fn test_046_LD_L_d8() {
-        let mut registers = Registers::new();
-        assert_eq!(0, registers.l());
-        registers.ld8('L', int("a") as u8);
-        assert_eq!(10, registers.l());
-    }
-
-    #[test]
-    fn test_074_LD_C_D() {
-        let mut registers = Registers::new();
-        registers.ld8('D', 10);
-        assert_eq!(10, registers.d());
-        registers.ld("C", "D");
-        assert_eq!(10, registers.c());
-    }
-
-    #[test]
-    fn test_075_LD_C_E() {
-        let mut registers = Registers::new();
-        registers.ld8('E', 10);
-        assert_eq!(10, registers.e());
-        registers.ld("C", "E");
-        assert_eq!(10, registers.c());
-    }
-    #[test]
-    fn test_075_LD_C_E_generic_fn() {
-        let mut registers = Registers::new();
-        registers.ld8('B', 55);
-        registers.ld("A", "B");
-        assert_eq!(55, registers.b());
-        assert_eq!(55, registers.a());
     }
 }

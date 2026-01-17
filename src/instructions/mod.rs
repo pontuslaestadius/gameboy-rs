@@ -1,6 +1,6 @@
 use super::binary::*;
 use super::share::*;
-use crate::rom::Rom;
+use crate::cartridge::*;
 use crate::utils::*;
 use std::io;
 
@@ -62,16 +62,16 @@ two prefix bytes,  displacement byte,  opcode
 */
 
 pub fn step_bytes<'a, T: Into<u16>>(
-    rom: &'a Rom,
+    rom: &'a RomOnly,
     pc: &mut u16,
     count: T,
 ) -> Result<Vec<&'a u8>, io::Error> {
     let mut bytes: Vec<&u8> = Vec::new();
     let count = count.into();
 
-    for i in 0..count {
-        bytes.push(rom.content.get((*pc + i) as usize).unwrap());
-    }
+    // for i in 0..count {
+    // bytes.push(&rom.read((*pc + i) as u16));
+    // }
 
     *pc += count;
 

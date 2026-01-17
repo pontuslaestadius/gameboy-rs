@@ -1,7 +1,8 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use crate::cpu::opcode::{flags::Flags, mnemonic::Mnemonic};
+use crate::cpu::opcode::flags::Flags;
+use crate::instruction::Mnemonic;
 
 #[derive(Deserialize)]
 pub struct Root {
