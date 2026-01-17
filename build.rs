@@ -1,6 +1,7 @@
 // build.rs
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::fs::*;
 use std::{env, fs, path::Path};
 
 #[derive(Deserialize)]
@@ -40,13 +41,28 @@ fn map_target(name: &str) -> String {
     }
 }
 
-fn produce_mnemonics_enum(hashset: HashSet<String>) -> String {
+fn produce_mnemonics_enum(hashset: &HashSet<String>) -> String {
     let mut code = String::new();
     code.push_str(&format!("\n#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]\n#[allow(non_camel_case_types)]\npub enum Mnemonic {{\n"));
-    for item in &hashset {
+    for item in hashset {
         code.push_str(&format!("{item},\n"));
     }
     code.push_str(&format!("}}\n"));
+    code
+}
+
+fn produce_mnemonics_coverage_trait(hashset: &HashSet<String>) -> String {
+    let mut code = String::new();
+    code.push_str("pub trait InstructionSet {\n");
+
+    for mnemonic in hashset {
+        // Generates: fn ld(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> u8;
+        code.push_str(&format!(
+            "    fn {}(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> u8;\n",
+            mnemonic.to_lowercase()
+        ));
+    }
+    code.push_str("}\n");
     code
 }
 
@@ -86,7 +102,8 @@ fn main() {
         code.push_str("];\n\n");
     }
 
-    code.push_str(&produce_mnemonics_enum(unique_mnemonics));
+    code.push_str(&produce_mnemonics_enum(&unique_mnemonics));
+    code.push_str(&produce_mnemonics_coverage_trait(&unique_mnemonics));
 
     fs::write(&dest_path, code).unwrap();
     println!("wrote generated opcodes to: {:?}", dest_path);

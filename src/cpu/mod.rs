@@ -1,9 +1,11 @@
 pub mod immediate;
+pub mod instruction_set;
 pub mod opcode;
 pub mod operand;
 pub mod register;
 use crate::instruction::*;
 use crate::*;
+use instruction_set::*;
 
 #[derive(Debug)]
 pub struct Cpu {
@@ -29,6 +31,13 @@ pub struct Cpu {
     pub ime_requested: bool,
 }
 
+struct AluResult {
+    value: u8,
+    z: bool,
+    n: bool,
+    h: bool,
+    c: bool,
+}
 impl Cpu {
     pub fn new() -> Self {
         Self {
@@ -48,15 +57,6 @@ impl Cpu {
             ime_requested: false,
         }
     }
-}
-struct AluResult {
-    value: u8,
-    z: bool,
-    n: bool,
-    h: bool,
-    c: bool,
-}
-impl Cpu {
     fn apply_alu_flags(&mut self, res: AluResult) {
         self.set_flag(FLAG_Z, res.z);
         self.set_flag(FLAG_N, res.n);
@@ -140,107 +140,30 @@ impl Cpu {
         }
     }
 
-    fn add(&mut self, instruction: OpcodeInfo, bus: &mut impl memory_trait::Memory) -> u8 {
-        // For ADD A, r8 or ADD A, n8
-        // Operands[0] is A, Operands[1] is the source
-        let src_index = if instruction.operands.len() > 1 { 1 } else { 0 };
-        let (src_target, _) = instruction.operands[src_index];
+    fn calculate_dec_8bit(&self, value: u8) -> (u8, bool, bool, bool) {
+        let res = value.wrapping_sub(1);
 
-        let val = self.read_target(src_target, bus).as_u8();
+        // Flags:
+        let z = res == 0;
+        let n = true; // Always true for DEC
+        // Half-Carry: Set if there was a borrow from bit 4
+        // (i.e., the lower nibble was 0x0 before the decrement)
+        let h = (value & 0x0F) == 0;
 
-        // Check if mnemonic is ADC (Add with Carry) or regular ADD
-        let use_carry = instruction.mnemonic == Mnemonic::ADC;
-
-        let res = self.alu_8bit_add(self.a, val, use_carry);
-
-        // Update A and Flags
-        self.a = res.value;
-        self.apply_alu_flags(res);
-
-        instruction.cycles[0]
-    }
-
-    fn jp(&mut self, instruction: OpcodeInfo, bus: &mut impl memory_trait::Memory) -> u8 {
-        let (target, _) = instruction.operands[0];
-        let dest_addr = match target {
-            // If it's n16 or a16, we just want the 16-bit immediate value from the bus
-            Target::Immediate16 | Target::AddrImmediate16 => {
-                let val = bus.read_u16(self.pc);
-                self.pc = self.pc.wrapping_add(2);
-                val
-            }
-            Target::Register16(Reg16::HL) => self.get_reg16(Reg16::HL),
-            _ => panic!("Unsupported JP target: {:?}", target),
-        };
-
-        self.pc = dest_addr;
-        instruction.cycles[0]
-    }
-
-    fn cp(&mut self, instruction: OpcodeInfo, bus: &mut impl memory_trait::Memory) -> u8 {
-        let (src_target, _) = instruction.operands[0]; // CP usually only lists the source
-        let val = self.read_target(src_target, bus).as_u8();
-
-        let res = self.alu_8bit_sub(self.a, val, false);
-
-        // CP ONLY updates Flags (A remains unchanged)
-        self.apply_alu_flags(res);
-
-        instruction.cycles[0]
-    }
-    fn jr(&mut self, instruction: OpcodeInfo, bus: &mut impl memory_trait::Memory) -> u8 {
-        // If only 1 operand, it's unconditional.
-        // If 2 operands, [0] is condition, [1] is offset.
-        let (target, _) = if instruction.operands.len() == 2 {
-            // For now, let's assume we skip the condition if we don't have the enum
-            instruction.operands[1]
-        } else {
-            instruction.operands[0]
-        };
-
-        let offset = self.read_target(target, bus).as_u8() as i8;
-
-        // Always branch for now to keep the trace moving
-        self.pc = self.pc.wrapping_add_signed(offset as i16);
-
-        instruction.cycles[0]
-    }
-
-    fn sub(&mut self, instruction: OpcodeInfo, bus: &mut impl memory_trait::Memory) -> u8 {
-        let (src_target, _) = instruction.operands[1]; // A is usually operands[0]
-        let val = self.read_target(src_target, bus).as_u8();
-
-        let res = self.alu_8bit_sub(self.a, val, false);
-
-        // SUB updates A and Flags
-        self.a = res.value;
-        self.apply_alu_flags(res);
-
-        instruction.cycles[0]
-    }
-
-    fn ld(&mut self, instruction: OpcodeInfo, bus: &mut impl memory_trait::Memory) -> u8 {
-        let (dest_target, _) = instruction.operands[0];
-        let (src_target, _) = instruction.operands[1];
-
-        // 1. Read the value from the source (e.g., could be Register A or a memory address)
-        let value = self.read_target(src_target, bus);
-
-        // 2. Write that value to the destination (e.g., 0xFF00 + a8)
-        self.write_target(dest_target, value, bus);
-
-        instruction.cycles[0]
+        (res, z, n, h)
     }
 
     fn execute(&mut self, instruction: OpcodeInfo, bus: &mut impl memory_trait::Memory) {
         info!("CPU: {}", self);
-        info!("{:#X}. {}", self.pc, instruction);
+        // Since we increment PC before this, we decrement it in our log.
+        info!("{:#X}. {}", self.pc - 1, instruction);
         let cycles = match instruction.mnemonic {
             Mnemonic::JP => self.jp(instruction, bus),
             Mnemonic::CP => self.cp(instruction, bus),
             Mnemonic::LD | Mnemonic::LDH => self.ld(instruction, bus),
             Mnemonic::SUB => self.sub(instruction, bus),
             Mnemonic::JR => self.jr(instruction, bus),
+            Mnemonic::DEC => self.dec(instruction, bus),
             Mnemonic::ADD => {
                 let (dest, _) = instruction.operands[0];
                 match dest {

@@ -66,7 +66,7 @@ pub fn step_bytes<'a, T: Into<u16>>(
     pc: &mut u16,
     count: T,
 ) -> Result<Vec<&'a u8>, io::Error> {
-    let mut bytes: Vec<&u8> = Vec::new();
+    let bytes: Vec<&u8> = Vec::new();
     let count = count.into();
 
     // for i in 0..count {

@@ -1,3 +1,4 @@
+use crate::memory_trait::Memory;
 use std::fmt;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
