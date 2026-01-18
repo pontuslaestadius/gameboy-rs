@@ -105,6 +105,8 @@ This project relies heavily on public documentation and community research:
 
 * Pan Docs (Game Boy technical reference)
 
+* [Game Boy Doctor](https://github.com/robert/gameboy-doctor)
+
 * Blargg test ROM documentation
 
 * gbdev.io community resources

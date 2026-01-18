@@ -89,12 +89,154 @@ pub enum Reg16 {
 }
 
 #[derive(Debug, Copy, Clone)]
+pub struct InstructionResult {
+    pub cycles: u8,
+    pub z: bool, // Proposed Zero
+    pub h: bool, // Proposed Half-Carry
+    pub c: bool, // Proposed Carry
+    pub n: bool,
+}
+
+impl InstructionResult {
+    /// Use this for instructions with fixed timing (LD, NOP, ALU, etc.)
+    /// It automatically pulls the first cycle value from the opcode metadata.
+    pub fn from_instr(instr: &OpcodeInfo) -> Self {
+        Self {
+            cycles: instr.cycles[0],
+            z: false,
+            h: false,
+            c: false,
+            n: false,
+        }
+    }
+
+    /// Use this for arithmetic where flags are calculated.
+    /// It pulls the cycles and lets you propose flag states.
+    pub fn with_flags(instr: &OpcodeInfo, z: bool, n: bool, h: bool, c: bool) -> Self {
+        Self {
+            cycles: instr.cycles[0],
+            z,
+            h,
+            c,
+            n,
+        }
+    }
+
+    /// Use this for conditional branches (JR, JP, CALL, RET).
+    /// Pass 'condition_met' to automatically select the correct timing from the JSON.
+    pub fn branching(instr: &OpcodeInfo, condition_met: bool) -> Self {
+        Self {
+            cycles: if condition_met {
+                instr.cycles[0]
+            } else {
+                instr.cycles[1]
+            },
+            z: false,
+            h: false,
+            c: false,
+            n: false,
+        }
+    }
+    /// For instructions like LD, JP, NOP that do not change flags.
+    /// The flags will be ignored by the FlagSpec filter (FlagAction::None).
+    pub fn simple(cycles: u8) -> Self {
+        Self {
+            cycles,
+            z: false,
+            h: false,
+            c: false,
+            n: false,
+        }
+    }
+
+    /// For instructions where the cycle count can change (e.g., JR NZ, e8).
+    /// Pass 'condition_met' to choose between cycles[0] and cycles[1].
+    pub fn jump(instr: &OpcodeInfo, condition_met: bool) -> Self {
+        let cycles = if condition_met {
+            instr.cycles[0]
+        } else {
+            instr.cycles[1]
+        };
+        Self::simple(cycles)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct OpcodeInfo {
     // Type is generated in build.rs
     pub mnemonic: Mnemonic,
     pub bytes: u8,
     pub cycles: &'static [u8],
     pub operands: &'static [(Target, bool)], // (Target, is_immediate)
+    pub flags: FlagSpec,
+}
+
+impl OpcodeInfo {
+    pub fn result(&self) -> InstructionResult {
+        InstructionResult::from_instr(&self)
+    }
+    /// For instructions that need to pass calculated flag proposals.
+    pub fn result_with_flags(&self, z: bool, n: bool, h: bool, c: bool) -> InstructionResult {
+        InstructionResult::with_flags(self, z, n, h, c)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum FlagAction {
+    None,      // "-" (Not affected)
+    Set,       // "1" (Always set)
+    Reset,     // "0" (Always reset)
+    Calculate, // "Z", "N", "H", or "C" (Computed at runtime)
+    Invert,    // Added for CCF (Complement Carry Flag)
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct FlagSpec {
+    pub z: FlagAction,
+    pub n: FlagAction,
+    pub h: FlagAction,
+    pub c: FlagAction,
+}
+impl fmt::Display for FlagAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let c = match self {
+            FlagAction::None => '-',      // Not affected
+            FlagAction::Calculate => 'v', // Varies/Calculated (or use 'Z','N', etc)
+            FlagAction::Set => '1',       // Hardcoded Set
+            FlagAction::Reset => '0',     // Hardcoded Reset
+            FlagAction::Invert => '!',
+        };
+        write!(f, "{}", c)
+    }
+}
+
+impl fmt::Display for FlagSpec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // We use the standard ZNHC order
+        // Using 'v' for Calculate, but you can override it for specific positions
+        let z = if self.z == FlagAction::Calculate {
+            'Z'
+        } else {
+            format!("{}", self.z).chars().next().unwrap()
+        };
+        let n = if self.n == FlagAction::Calculate {
+            'N'
+        } else {
+            format!("{}", self.n).chars().next().unwrap()
+        };
+        let h = if self.h == FlagAction::Calculate {
+            'H'
+        } else {
+            format!("{}", self.h).chars().next().unwrap()
+        };
+        let c = if self.c == FlagAction::Calculate {
+            'C'
+        } else {
+            format!("{}", self.c).chars().next().unwrap()
+        };
+
+        write!(f, "[{}{}{}{}]", z, n, h, c)
+    }
 }
 
 impl fmt::Display for Target {
@@ -117,7 +259,7 @@ impl fmt::Display for OpcodeInfo {
             .collect();
 
         if !operand_strings.is_empty() {
-            write!(f, " {}", operand_strings.join(", "))?;
+            write!(f, " {}    {}", operand_strings.join(", "), self.flags)?;
         }
 
         Ok(())

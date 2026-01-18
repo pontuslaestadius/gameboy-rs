@@ -15,7 +15,7 @@ pub struct Session {
 impl Session {
     pub fn new(buffer: Vec<u8>) -> Self {
         let headers = Headers::new(&buffer);
-        info!("Cartridge headers: {:?}", headers);
+        // info!("Cartridge headers: {:?}", headers);
         Session {
             memory: Memory::new(buffer),
             cpu: Cpu::new(),

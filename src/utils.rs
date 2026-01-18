@@ -13,17 +13,6 @@ pub fn str_to_code(code: &str) -> [Option<char>; 2] {
     [first, second]
 }
 
-/// Writes the given vec to the given path.
-// pub fn write_vec(path: &str, vec: &Vec<Instruction>) -> Result<(), io::Error> {
-//     let mut file = OpenOptions::new().write(true).create(true).open(path)?;
-
-//     for item in vec.iter() {
-//         file.write_all(format!("{:?}", item).as_bytes())?;
-//         file.write(b"\n")?;
-//     }
-//     Ok(())
-// }
-
 pub fn octal_digit_from_binary_list(list: &[u8]) -> u8 {
     let mut multiplier = 1;
     let mut result: u8 = 0;

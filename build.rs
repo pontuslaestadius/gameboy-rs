@@ -15,6 +15,7 @@ struct RawOpcode {
     bytes: u8,
     cycles: Vec<u8>,
     operands: Vec<RawOperand>,
+    flags: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -110,7 +111,7 @@ fn produce_mnemonics_enum(hashset: &HashSet<String>) -> String {
 fn produce_dispatcher_fn(hashset: &HashSet<String>) -> String {
     let mut code = String::new();
     code.push_str("impl Cpu {\n");
-    code.push_str("pub fn dispatch(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> u8 {");
+    code.push_str("pub fn dispatch(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {");
     // Since we increment PC before this, we decrement it in our log.
     code.push_str("match instr.mnemonic {\n");
 
@@ -130,14 +131,23 @@ fn produce_mnemonics_coverage_trait(hashset: &HashSet<String>) -> String {
     code.push_str("pub trait InstructionSet {\n");
 
     for mnemonic in hashset {
-        // Generates: fn ld(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> u8;
         code.push_str(&format!(
-            "    fn {}(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> u8;\n",
+            "    fn {}(&mut self, instr: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult;\n",
             mnemonic.to_lowercase()
         ));
     }
     code.push_str("}\n");
     code
+}
+
+fn map_flag_action(action: &str) -> String {
+    match action {
+        "Z" | "N" | "H" | "C" => "FlagAction::Calculate".to_string(),
+        "0" => "FlagAction::Reset".to_string(),
+        "1" => "FlagAction::Set".to_string(),
+        "-" => "FlagAction::None".to_string(),
+        _ => panic!("Unknown flag action in JSON: {}", action),
+    }
 }
 
 fn main() {
@@ -164,6 +174,16 @@ fn main() {
                     code.push_str(&format!("    None,\n",));
                     continue;
                 }
+                let mut flag_str = String::new();
+                for (key, val) in op.flags.iter() {
+                    let content = if op.mnemonic == "CCF" && val == "C" {
+                        "FlagAction::Invert".to_string()
+                    } else {
+                        map_flag_action(val)
+                    };
+
+                    flag_str.push_str(&format!("{}: {}, ", key.to_ascii_lowercase(), content));
+                }
                 // TODO: maybe handle flags here? So all static flags, e.g.
                 // forced without the operation results mattering.
                 let mut ops_str = String::new();
@@ -172,8 +192,8 @@ fn main() {
                     ops_str.push_str(&format!("({}, {}),", map_target(o), o.immediate));
                 }
                 code.push_str(&format!(
-                    "    Some(OpcodeInfo {{ mnemonic: Mnemonic::{}, bytes: {}, cycles: &{:?}, operands: &[{}] }}),\n",
-                    op.mnemonic, op.bytes, op.cycles, ops_str
+                    "    Some(OpcodeInfo {{ mnemonic: Mnemonic::{}, bytes: {}, cycles: &{:?}, operands: &[{}], flags: FlagSpec {{{}}}  }}),\n",
+                    op.mnemonic, op.bytes, op.cycles, ops_str, flag_str
                 ));
             } else {
                 code.push_str("    None,\n");
@@ -189,5 +209,6 @@ fn main() {
     fs::write(&dest_path, code).unwrap();
     println!("wrote generated opcodes to: {:?}", dest_path);
     println!("cargo:rerun-if-changed=src/data/opcodes.json");
+    println!("cargo:rerun-if-changed=src/instruction.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }

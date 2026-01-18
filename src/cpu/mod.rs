@@ -37,6 +37,7 @@ struct AluResult {
     h: bool,
     c: bool,
 }
+
 impl Cpu {
     pub fn new() -> Self {
         Self {
@@ -56,57 +57,91 @@ impl Cpu {
             ime_requested: false,
         }
     }
+    pub fn reset_post_boot(&mut self) {
+        self.a = 0x01;
+        // F = 0xB0 -> Z:1, N:0, H:1, C:1 (Upper nibble is 1011)
+        self.f = 0xB0;
+        self.b = 0x00;
+        self.c = 0x13;
+        self.d = 0x00;
+        self.e = 0xD8;
+        self.h = 0x01;
+        self.l = 0x4D;
+        self.sp = 0xFFFE;
+        self.pc = 0x0100; // The standard entry point for all cartridges
+    }
     fn apply_alu_flags(&mut self, res: AluResult) {
         self.set_flag(FLAG_Z, res.z);
         self.set_flag(FLAG_N, res.n);
         self.set_flag(FLAG_H, res.h);
         self.set_flag(FLAG_C, res.c);
     }
+    fn apply_flags(&mut self, spec: &FlagSpec, res: InstructionResult) {
+        self.update_single_flag(FLAG_Z, spec.z, res.z);
+        self.update_single_flag(FLAG_N, spec.n, false); // N is almost always hardcoded in Spec
+        self.update_single_flag(FLAG_H, spec.h, res.h);
+        self.update_single_flag(FLAG_C, spec.c, res.c);
+    }
+
+    fn update_single_flag(&mut self, bit: u8, action: FlagAction, proposed: bool) {
+        match action {
+            FlagAction::Calculate => self.set_flag(bit, proposed),
+            FlagAction::Set => self.set_flag(bit, true),
+            FlagAction::Reset => self.set_flag(bit, false),
+            FlagAction::Invert => {
+                let current = self.get_flag(bit);
+                self.set_flag(bit, !current);
+            }
+            FlagAction::None => {} // Instruction doesn't touch this flag. Keep old value.
+        }
+    }
     fn alu_8bit_add(&self, a: u8, b: u8, use_carry: bool) -> AluResult {
-        let carry_val = if use_carry && self.get_flag(FLAG_C) {
+        let c_in = if use_carry && self.get_flag(FLAG_C) {
             1
         } else {
             0
         };
 
-        // Use u16 to detect the 8-bit Carry (result > 0xFF)
-        let res = (a as u16) + (b as u16) + (carry_val as u16);
+        let res = (a as u16) + (b as u16) + (c_in as u16);
         let res_u8 = res as u8;
 
-        // Half-Carry: (a_lower + b_lower + carry) > 0xF
-        let h_bit = (a & 0x0F) + (b & 0x0F) + carry_val > 0x0F;
+        // Half-Carry: Carry out of bit 3 into bit 4
+        // We check if the sum of the lower nibbles exceeds 0xF
+        let h_bit = (a & 0x0F) + (b & 0x0F) + c_in > 0x0F;
 
         AluResult {
             value: res_u8,
             z: res_u8 == 0,
-            n: false, // Always false for ADD
+            n: false,
             h: h_bit,
             c: res > 0xFF,
         }
     }
+
     fn alu_8bit_sub(&self, a: u8, b: u8, use_carry: bool) -> AluResult {
-        let carry_val = if use_carry && self.get_flag(FLAG_C) {
+        let c_in = if use_carry && self.get_flag(FLAG_C) {
             1
         } else {
             0
         };
 
-        // Use u16 for result to detect Carry easily
-        let res = (a as u16)
-            .wrapping_sub(b as u16)
-            .wrapping_sub(carry_val as u16);
+        // Standard subtraction result
+        let res = (a as i16) - (b as i16) - (c_in as i16);
         let res_u8 = res as u8;
 
-        // Half-Carry for subtraction: borrow from bit 4
-        // Logic: ((a & 0xF) as i16) - ((b & 0xF) as i16) - (carry_val as i16) < 0
-        let h_bit = (a & 0x0F) < (b & 0x0F) + carry_val;
+        // Half-Carry (Half-Borrow): Set if there is no borrow from bit 4.
+        // In GB terms: bit 3 of 'a' was less than (bit 3 of 'b' + c_in)
+        let h_bit = (a & 0x0F) < (b & 0x0F) + c_in;
+
+        // Carry (Borrow): Set if the result is negative (a borrow from bit 8)
+        let c_bit = (a as u16) < (b as u16) + (c_in as u16);
 
         AluResult {
             value: res_u8,
             z: res_u8 == 0,
-            n: true, // Always true for SUB/CP
+            n: true,
             h: h_bit,
-            c: res > 0xFF, // In wrapping_sub, a result > 0xFF indicates a borrow occurred
+            c: c_bit,
         }
     }
 
@@ -138,6 +173,7 @@ impl Cpu {
     }
 
     pub fn step(&mut self, bus: &mut impl memory_trait::Memory) {
+        info!("{}", self.format_for_doctor(bus));
         let opcode = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
 
@@ -152,12 +188,16 @@ impl Cpu {
         if let Some(code) = op {
             // Pass the bus into your execution logic
 
-            info!("CPU: {}", self);
             // Since we increment PC before this, we decrement it in our log.
-            info!("{:#X}. {:#X}. {}", self.pc - 1, opcode, code);
-            let cycles = self.dispatch(code, bus);
-            std::thread::sleep(T_CYCLE * cycles as u32);
-            bus.increment_cycles(cycles as u64);
+            // info!("{:#X}. {:#X}. {}", self.pc - 1, opcode, code);
+            let result: InstructionResult = self.dispatch(code, bus);
+
+            // 2. Apply Flags based on the Spec
+            // The Spec decides: "Do I take the instruction's proposal, hardcode a value, or do nothing?"
+            self.apply_flags(&code.flags, result);
+
+            std::thread::sleep(T_CYCLE * result.cycles as u32);
+            bus.increment_cycles(result.cycles as u64);
         }
     }
 
@@ -424,7 +464,7 @@ impl Cpu {
     fn check_condition_operand(&self, target: Target) -> bool {
         // Note: You'll need to check if your build.rs maps
         // NZ/Z/NC/C to a specific Target variant.
-        // If it currently maps them to Target::Register8(Reg8::C), etc:
+        // if it currently maps them to Target::Register8(Reg8::C), etc:
         match target {
             Target::Register8(Reg8::C) => self.get_flag(FLAG_C),
             // ... handle others ...
@@ -445,6 +485,32 @@ impl Cpu {
             Target::StackPointer => self.sp = value,
             _ => panic!("Target {:?} is not a 16-bit register", target),
         }
+    }
+    pub fn format_for_doctor(&self, bus: &impl memory_trait::Memory) -> String {
+        // Read 4 bytes starting at PC for the PCMEM section
+        let pcmem0 = bus.read(self.pc);
+        let pcmem1 = bus.read(self.pc.wrapping_add(1));
+        let pcmem2 = bus.read(self.pc.wrapping_add(2));
+        let pcmem3 = bus.read(self.pc.wrapping_add(3));
+
+        // Format: A:00 F:11 B:22 C:33 D:44 E:55 H:66 L:77 SP:8888 PC:9999 PCMEM:AA,BB,CC,DD
+        format!(
+            "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",
+            self.a,
+            self.f,
+            self.b,
+            self.c,
+            self.d,
+            self.e,
+            self.h,
+            self.l,
+            self.sp,
+            self.pc,
+            pcmem0,
+            pcmem1,
+            pcmem2,
+            pcmem3
+        )
     }
 }
 

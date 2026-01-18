@@ -58,7 +58,7 @@ impl Headers {
         };
 
         headers.is_valid = headers.validate(content);
-        info!("Cartridge headers: {:?}", headers);
+        // info!("Cartridge headers: {:?}", headers);
         headers
     }
 

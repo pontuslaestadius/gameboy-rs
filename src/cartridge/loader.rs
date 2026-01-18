@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 
 pub fn load_rom(path: &Path) -> Result<Session, LoadError> {
-    info!("Loading ROM...");
+    // info!("Loading ROM...");
     validate_extension(path)?;
 
     let buffer = fs::read(path)?;

@@ -53,6 +53,12 @@ impl memory_trait::Memory for Memory {
             self.data[mirrored_addr as usize] = val;
         }
 
+        if addr == 0xFF44 {
+            // LY is read-only on real hardware.
+            // Writing to it usually resets it to 0,
+            // but for this hack, we just ignore the write.
+        }
+
         // 2. Handle Serial/LY/other hooks here...
         // Hooks into Serial Port Link Cable interface.
         if addr == 0xFF02 && val == 0x81 {
