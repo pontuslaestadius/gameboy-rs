@@ -164,6 +164,8 @@ fn main() {
                     code.push_str(&format!("    None,\n",));
                     continue;
                 }
+                // TODO: maybe handle flags here? So all static flags, e.g.
+                // forced without the operation results mattering.
                 let mut ops_str = String::new();
                 unique_mnemonics.insert(op.mnemonic.clone());
                 for o in &op.operands {

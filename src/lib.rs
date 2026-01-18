@@ -17,19 +17,26 @@ use session::Session;
 use std::io;
 
 use std::fs::OpenOptions;
+use std::path::PathBuf;
 
 use log::LevelFilter;
+
+pub fn setup_logging(log_path: Option<PathBuf>) -> Result<(), io::Error> {
+    if let Some(log_path) = log_path {
+        OpenOptions::new().write(true).create(true);
+        simple_logging::log_to_file(log_path, LevelFilter::Info)?;
+    } else {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+            .format_timestamp(None)
+            .init();
+    }
+    Ok(())
+}
 
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
 pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
-    if let Some(log_path) = args.log_path {
-        OpenOptions::new().write(true).create(true);
-        simple_logging::log_to_file(log_path, LevelFilter::Info)?;
-    } else {
-        env_logger::builder().format_timestamp(None).init();
-    }
-
+    setup_logging(args.log_path);
     match cartridge::load_rom(&args.load_rom) {
         Ok(session) => {
             // Starts the main read loop.

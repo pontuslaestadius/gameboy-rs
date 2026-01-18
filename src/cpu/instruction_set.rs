@@ -10,21 +10,38 @@ impl InstructionSet for Cpu {
         instruction.cycles[0]
     }
     fn add(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> u8 {
-        // For ADD A, r8 or ADD A, n8
-        // Operands[0] is A, Operands[1] is the source
-        let src_index = if instruction.operands.len() > 1 { 1 } else { 0 };
-        let (src_target, _) = instruction.operands[src_index];
+        let dest_target = instruction.operands[0].0;
+        let src_target = instruction.operands[1].0;
 
-        let val = self.read_target(src_target, bus).as_u8();
+        // Check if we are doing 16-bit addition (Target is HL or SP)
+        match dest_target {
+            Target::Register16(Reg16::HL) | Target::StackPointer => {
+                let val1 = self.read_target(dest_target, bus).as_u16();
+                let val2 = self.read_target(src_target, bus).as_u16();
 
-        // Check if mnemonic is ADC (Add with Carry) or regular ADD
-        let use_carry = instruction.mnemonic == Mnemonic::ADC;
+                // 16-bit ADD logic (HL = HL + r16)
+                let res = val1.wrapping_add(val2);
 
-        let res = self.alu_8bit_add(self.a, val, use_carry);
+                // Flags for ADD HL, rr:
+                // Z: Not affected!
+                // N: Reset (0)
+                // H: Set if carry from bit 11
+                // C: Set if carry from bit 15
+                self.set_flag(FLAG_N, false);
+                self.set_flag(FLAG_H, (val1 & 0xFFF) + (val2 & 0xFFF) > 0xFFF);
+                self.set_flag(FLAG_C, (val1 as u32 + val2 as u32) > 0xFFFF);
 
-        // Update A and Flags
-        self.a = res.value;
-        self.apply_alu_flags(res);
+                self.write_target(dest_target, OperandValue::U16(res), bus);
+            }
+            _ => {
+                // 8-bit logic for ADD A, r8
+                let val = self.read_target(src_target, bus).as_u8();
+                let use_carry = instruction.mnemonic == Mnemonic::ADC;
+                let res = self.alu_8bit_add(self.a, val, use_carry);
+                self.a = res.value;
+                self.apply_alu_flags(res);
+            }
+        }
 
         instruction.cycles[0]
     }
@@ -87,9 +104,9 @@ impl InstructionSet for Cpu {
                 let val = self.get_reg8(reg);
                 let (res, z, n, h) = self.calculate_dec_8bit(val);
                 self.set_reg8(reg, res);
-                self.set_flag(FLAG_Z, z);
-                self.set_flag(FLAG_N, n);
-                self.set_flag(FLAG_H, h);
+                self.set_z(z);
+                self.set_n(n);
+                self.set_h(h);
             }
 
             // 8-bit Memory Decrement (e.g., DEC (HL))
@@ -98,9 +115,9 @@ impl InstructionSet for Cpu {
                 let val = bus.read(addr);
                 let (res, z, n, h) = self.calculate_dec_8bit(val);
                 bus.write(addr, res);
-                self.set_flag(FLAG_Z, z);
-                self.set_flag(FLAG_N, n);
-                self.set_flag(FLAG_H, h);
+                self.set_z(z);
+                self.set_n(n);
+                self.set_h(h);
             }
 
             // 16-bit Decrement (Affects NO flags)
@@ -147,10 +164,10 @@ impl InstructionSet for Cpu {
         self.a ^= val;
 
         // XOR Flags: Z if result 0, others always false
-        self.set_flag(FLAG_Z, self.a == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, false);
+        self.set_z(self.a == 0);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(false);
 
         instr.cycles[0]
     }
@@ -161,10 +178,10 @@ impl InstructionSet for Cpu {
         let res = self.get_reg8(Reg8::A) | val;
         self.set_reg8(Reg8::A, res);
 
-        self.set_flag(FLAG_Z, res == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, false);
+        self.set_z(res == 0);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(false);
 
         instr.cycles[0]
     }
@@ -175,10 +192,10 @@ impl InstructionSet for Cpu {
         let res = self.get_reg8(Reg8::A) & val;
         self.set_reg8(Reg8::A, res);
 
-        self.set_flag(FLAG_Z, res == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, true); // Unique to AND
-        self.set_flag(FLAG_C, false);
+        self.set_z(res == 0);
+        self.set_n(false);
+        self.set_h(true); // Unique to AND
+        self.set_c(false);
 
         instr.cycles[0]
     }
@@ -234,9 +251,9 @@ impl InstructionSet for Cpu {
 
         let is_set = (val & (1 << bit_index)) != 0;
 
-        self.set_flag(FLAG_Z, !is_set);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, true); // BIT always sets H to true
+        self.set_z(!is_set);
+        self.set_n(false);
+        self.set_h(true); // BIT always sets H to true
         // C flag is left unchanged
 
         instr.cycles[0]
@@ -246,15 +263,15 @@ impl InstructionSet for Cpu {
         self.set_reg8(Reg8::A, !a);
 
         // Flags: Z is unaffected, N and H become true
-        self.set_flag(FLAG_N, true);
-        self.set_flag(FLAG_H, true);
+        self.set_n(true);
+        self.set_h(true);
 
         instr.cycles[0]
     }
     fn scf(&mut self, instr: OpcodeInfo, _bus: &mut impl Memory) -> u8 {
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, true);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(true);
 
         instr.cycles[0]
     }
@@ -293,9 +310,9 @@ impl InstructionSet for Cpu {
                 let val = self.get_reg8(reg);
                 let res = val.wrapping_add(1);
                 self.set_reg8(reg, res);
-                self.set_flag(FLAG_Z, res == 0);
-                self.set_flag(FLAG_N, false);
-                self.set_flag(FLAG_H, (val & 0x0F) == 0x0F);
+                self.set_z(res == 0);
+                self.set_n(false);
+                self.set_h((val & 0x0F) == 0x0F);
             }
             Target::Register16(reg) => {
                 let val = self.get_reg16(reg);
@@ -399,9 +416,9 @@ impl InstructionSet for Cpu {
         }
 
         self.set_reg8(Reg8::A, a);
-        self.set_flag(FLAG_Z, a == 0);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, carry);
+        self.set_z(a == 0);
+        self.set_h(false);
+        self.set_c(carry);
 
         instr.cycles[0]
     }
@@ -413,10 +430,10 @@ impl InstructionSet for Cpu {
         let res = val << 1;
 
         self.write_target(target, OperandValue::U8(res), bus);
-        self.set_flag(FLAG_Z, res == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, carry);
+        self.set_z(res == 0);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(carry);
 
         instr.cycles[0]
     }
@@ -428,10 +445,10 @@ impl InstructionSet for Cpu {
         let res = val >> 1;
 
         self.write_target(target, OperandValue::U8(res), bus);
-        self.set_flag(FLAG_Z, res == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, carry);
+        self.set_z(res == 0);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(carry);
 
         instr.cycles[0]
     }
@@ -444,18 +461,18 @@ impl InstructionSet for Cpu {
         let res = (val >> 1) | (val & 0x80);
 
         self.write_target(target, OperandValue::U8(res), bus);
-        self.set_flag(FLAG_Z, res == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, carry);
+        self.set_z(res == 0);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(carry);
 
         instr.cycles[0]
     }
     fn ccf(&mut self, instr: OpcodeInfo, _bus: &mut impl Memory) -> u8 {
         let c = self.get_flag(FLAG_C);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, !c);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(!c);
 
         instr.cycles[0]
     }
@@ -550,10 +567,10 @@ impl InstructionSet for Cpu {
         let res = (a << 1) | old_c;
         self.set_reg8(Reg8::A, res);
 
-        self.set_flag(FLAG_Z, false); // Always false for RLA
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, new_c == 1);
+        self.set_z(false); // Always false for RLA
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(new_c == 1);
 
         instr.cycles[0]
     }
@@ -566,10 +583,10 @@ impl InstructionSet for Cpu {
         let res = (a >> 1) | (old_c << 7);
         self.set_reg8(Reg8::A, res);
 
-        self.set_flag(FLAG_Z, false); // Always false for RRA
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, new_c == 1);
+        self.set_z(false); // Always false for RRA
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(new_c == 1);
 
         instr.cycles[0]
     }
@@ -582,10 +599,10 @@ impl InstructionSet for Cpu {
         let res = (val >> 1) | (old_c << 7);
         self.write_target(target, OperandValue::U8(res), bus);
 
-        self.set_flag(FLAG_Z, res == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, new_c == 1);
+        self.set_z(res == 0);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(new_c == 1);
 
         instr.cycles[0]
     }
@@ -598,10 +615,10 @@ impl InstructionSet for Cpu {
         let res = (val >> 1) | (bit0 << 7);
         self.write_target(target, OperandValue::U8(res), bus);
 
-        self.set_flag(FLAG_Z, res == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, bit0 == 1);
+        self.set_z(res == 0);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(bit0 == 1);
 
         instr.cycles[0]
     }
@@ -628,10 +645,10 @@ impl InstructionSet for Cpu {
         let res = (val >> 4) | (val << 4);
         self.write_target(target, OperandValue::U8(res), bus);
 
-        self.set_flag(FLAG_Z, res == 0);
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, false);
+        self.set_z(res == 0);
+        self.set_n(false);
+        self.set_h(false);
+        self.set_c(false);
 
         instr.cycles[0]
     }

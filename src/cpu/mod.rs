@@ -157,6 +157,7 @@ impl Cpu {
             info!("{:#X}. {:#X}. {}", self.pc - 1, opcode, code);
             let cycles = self.dispatch(code, bus);
             std::thread::sleep(T_CYCLE * cycles as u32);
+            bus.increment_cycles(cycles as u64);
         }
     }
 

@@ -1,6 +1,7 @@
 pub trait Memory {
     fn read(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, val: u8);
+    fn increment_cycles(&mut self, value: u64);
 
     // Helper for 16-bit reads (Little Endian)
     fn read_u16(&self, addr: u16) -> u16 {

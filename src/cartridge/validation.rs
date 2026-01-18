@@ -17,14 +17,14 @@ pub fn validate_extension(path: &Path) -> Result<(), LoadError> {
         .to_str()
         .ok_or(LoadError::MissingExtension)?;
 
-    if !ext.eq_ignore_ascii_case(GAME_BOY_FILE_EXT) {
-        return Err(LoadError::InvalidExtension {
-            expected: GAME_BOY_FILE_EXT,
+    if ext.eq_ignore_ascii_case("gb") || ext.eq_ignore_ascii_case("gbc") {
+        Ok(())
+    } else {
+        Err(LoadError::InvalidExtension {
+            expected: ".gb or .gbc",
             found: ext.to_string(),
-        });
+        })
     }
-
-    Ok(())
 }
 
 mod tests {
@@ -41,13 +41,13 @@ mod tests {
     #[test]
     fn test_display_invalid_extension() {
         let err = LoadError::InvalidExtension {
-            expected: "gb",
+            expected: ".gb or .gbc",
             found: "txt".to_string(),
         };
         let msg = format!("{}", err);
         assert_eq!(
             msg,
-            "Invalid ROM file extension: expected 'gb', found 'txt'"
+            "Invalid ROM file extension: expected '.gb or .gbc', found 'txt'"
         );
     }
 
@@ -110,9 +110,11 @@ mod tests {
     fn correct_file_extensions() {
         let cases = [
             "game.gb",
+            "game.gbc",
             "GaMe.GB",
             "Foreign keyboard chars åäö.Gb",
             "mIxEd.gB",
+            "mIxEd.gBc",
         ];
 
         for case in cases {
