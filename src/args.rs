@@ -19,4 +19,9 @@ pub struct Args {
     // Optional log path, if none given, no log will be created.
     #[arg(long)]
     pub log_path: Option<PathBuf>,
+
+    // Run for a predeterminate amount of instructions for Game Boy Doctor emulator test.
+    // Provide the number of log lines, or CPU instructions the game expects to verify.
+    #[arg(long)]
+    pub debug_doctor: Option<usize>,
 }

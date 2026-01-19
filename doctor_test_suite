@@ -47,7 +47,7 @@ check_dependencies() {
 
 build_emulator() {
     echo -e "${BLUE}🦀 Compiling Emulator...${NC}"
-    if cargo build --quiet 2> /dev/null; then
+    if cargo build --release --quiet 2> /dev/null; then
         echo -e "${GREEN}✅ Build successful!${NC}"
     else
         echo -e "${RED}❌ Build failed. Check your Rust code.${NC}"
@@ -70,7 +70,11 @@ run_single_test() {
     rm -f "${LOG_FILE}"
     
     echo -e "${BLUE}⏱️  Running for ${DURATION}s...${NC}"
-    timeout --foreground "${DURATION}" ./target/debug/gameboy_rs --load-rom "${rom_path}" --log-path "${LOG_FILE}"
+
+    export RUST_BACKTRACE=1
+    # This lines implementation requires, doctor to have unzipped the files once.
+    lines=$(wc -l < ${DOCTOR_DIR}/truth/unzipped/cpu_instrs/${index}.log)
+    timeout --foreground "${DURATION}" ./target/release/gameboy_rs --load-rom "${rom_path}" --log-path "${LOG_FILE}" --debug-doctor "${lines}"
 
     if [ ! -s "$LOG_FILE" ]; then
         echo -e "${RED}❌ Error: No log data generated.${NC}"

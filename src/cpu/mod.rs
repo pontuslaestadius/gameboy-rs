@@ -24,10 +24,17 @@ pub struct Cpu {
 
     // Internal state
     pub halted: bool,
-    pub ime: bool, // Interrupt Master Enable
-    // Internal state, use to track EIA
-    // The interrupts are not enabled until the instruction after the EI instruction.
-    pub ime_requested: bool,
+
+    pub ime: bool, // Interrupt Master Enable (The "Master Switch")
+
+    // Use an enum or a counter for the EI delay.
+    // Since it's exactly one instruction, a simple 0, 1, 2 counter works well.
+    pub ime_scheduled: u8,
+
+    halt_bug_triggered: bool,
+    // These represent the hardware registers at 0xFF0F and 0xFFFF
+    pub if_reg: u8, // Interrupt Flag (What happened?)
+    pub ie_reg: u8, // Interrupt Enable (What do we care about?)
 }
 
 struct AluResult {
@@ -54,7 +61,10 @@ impl Cpu {
             sp: 0xFFFE,
             halted: false,
             ime: false,
-            ime_requested: false,
+            ime_scheduled: 0,
+            if_reg: 0,
+            ie_reg: 0,
+            halt_bug_triggered: false,
         }
     }
     pub fn reset_post_boot(&mut self) {
@@ -70,11 +80,63 @@ impl Cpu {
         self.sp = 0xFFFE;
         self.pc = 0x0100; // The standard entry point for all cartridges
     }
-    fn apply_alu_flags(&mut self, res: AluResult) {
-        self.set_z(res.z);
-        self.set_n(res.n);
-        self.set_h(res.h);
-        self.set_c(res.c);
+    fn service_interrupt(&mut self, bit: u8, bus: &mut impl memory_trait::Memory) {
+        // 1. Disable interrupts to prevent recursive nesting
+        self.ime = false;
+
+        // 2. Acknowledge the interrupt by clearing the specific bit in IF
+        // Note: Use bitmask clearing, not XOR, to be safe.
+        self.if_reg &= !(1 << bit);
+
+        // 3. Push current PC onto the stack
+        // The stack grows downwards, so we decrement SP before each write.
+        let pc_high = (self.pc >> 8) as u8;
+        let pc_low = (self.pc & 0xFF) as u8;
+
+        self.sp = self.sp.wrapping_sub(1);
+        bus.write(self.sp, pc_high);
+
+        self.sp = self.sp.wrapping_sub(1);
+        bus.write(self.sp, pc_low);
+
+        // 4. Jump to the vector address
+        // Priority: V-Blank (0x40), LCD (0x48), Timer (0x50), Serial (0x58), Joypad (0x60)
+        self.pc = match bit {
+            0 => 0x0040,  // V-Blank
+            1 => 0x0048,  // LCD STAT
+            2 => 0x0050,  // Timer
+            3 => 0x0058,  // Serial
+            4 => 0x0060,  // Joypad
+            _ => self.pc, // Should never happen
+        };
+    }
+
+    fn check_interrupts(&mut self, bus: &mut impl memory_trait::Memory) {
+        let if_reg = bus.read(0xFF0F);
+        let ie_reg = bus.read(0xFFFF);
+        let pending = if_reg & ie_reg;
+
+        if pending == 0 {
+            return;
+        }
+
+        // ANY pending interrupt wakes the CPU, even if IME is 0
+        if self.halted {
+            self.halted = false;
+        }
+
+        // Only jump to the handler if Master Enable is ON
+        if self.ime {
+            for bit in 0..5 {
+                if (pending >> bit) & 1 == 1 {
+                    // Clear the flag and push PC
+                    let cleared_if = if_reg & !(1 << bit);
+                    bus.write(0xFF0F, cleared_if);
+                    self.service_interrupt(bit, bus);
+                    break;
+                }
+            }
+        }
     }
     fn apply_flags(&mut self, spec: &FlagSpec, res: InstructionResult) {
         self.update_single_flag(FLAG_Z, spec.z, res.z);
@@ -172,12 +234,54 @@ impl Cpu {
         }
     }
 
+    pub fn request_ime(&mut self) {
+        self.ime_scheduled = 2;
+    }
+
     pub fn step(&mut self, bus: &mut impl memory_trait::Memory) {
-        if !self.halted {
-            info!("{}", self.format_for_doctor(bus));
+        // 1. Check for interrupts (WAKE UP LOGIC)
+        let pending = bus.read(0xFF0F) & bus.read(0xFFFF);
+
+        if pending != 0 {
+            self.halted = false; // Any pending interrupt wakes the CPU
+            if self.ime {
+                self.service_interrupt(0, bus); // Jump to vector
+                return; // Skip normal instruction fetch
+            }
         }
+
+        // 2. If still halted, just tick cycles and return
+        if self.halted {
+            bus.increment_cycles(4); // HALT consumes 4 cycles per "step"
+            return;
+        }
+
+        // 2. Log State (Doctor expects state BEFORE the instruction)
+        info!("{}", self.format_for_doctor(bus));
+
+        // This is the point where the CPU decides: "Do I execute the next instruction
+        // at PC, or do I hijack the PC and go to a vector?"
+        self.check_interrupts(bus);
+
+        // 3. IME Delay Logic
+        // If EI was called in the previous step, IME turns on NOW.
+        // Note: check_interrupts already ran, so it won't fire until the NEXT step.
+        if self.ime_scheduled > 0 {
+            self.ime_scheduled -= 1;
+            if self.ime_scheduled == 0 {
+                self.ime = true;
+            }
+        }
+
         let opcode = bus.read(self.pc);
-        self.pc = self.pc.wrapping_add(1);
+
+        if self.halt_bug_triggered {
+            // The PC DOES NOT increment this time.
+            // The next instruction will read this same byte again.
+            self.halt_bug_triggered = false;
+        } else {
+            self.pc = self.pc.wrapping_add(1);
+        }
 
         let op = if opcode == CB_PREFIX_OPCODE_BYTE {
             let cb = bus.read(self.pc);
@@ -188,20 +292,8 @@ impl Cpu {
         };
 
         if let Some(code) = op {
-            // Pass the bus into your execution logic
-            // if code.mnemonic == Mnemonic::OR {
-            //     println!("{}", code);
-            // }
-
-            // Since we increment PC before this, we decrement it in our log.
-            // info!("{:#X}. {:#X}. {}", self.pc - 1, opcode, code);
-            let result: InstructionResult = self.dispatch(code, bus);
-
-            // 2. Apply Flags based on the Spec
-            // The Spec decides: "Do I take the instruction's proposal, hardcode a value, or do nothing?"
+            let result = self.dispatch(code, bus);
             self.apply_flags(&code.flags, result);
-
-            // std::thread::sleep(T_CYCLE * result.cycles as u32);
             bus.increment_cycles(result.cycles as u64);
         }
     }
@@ -480,12 +572,12 @@ impl Cpu {
     }
 
     // Helper for the A-versions
-    fn set_flags_rotate(&mut self, res: u8, carry: bool, is_a_version: bool) {
-        self.set_flag(FLAG_Z, if is_a_version { false } else { res == 0 });
-        self.set_flag(FLAG_N, false);
-        self.set_flag(FLAG_H, false);
-        self.set_flag(FLAG_C, carry);
-    }
+    // fn set_flags_rotate(&mut self, res: u8, carry: bool, is_a_version: bool) {
+    //     self.set_flag(FLAG_Z, if is_a_version { false } else { res == 0 });
+    //     self.set_flag(FLAG_N, false);
+    //     self.set_flag(FLAG_H, false);
+    //     self.set_flag(FLAG_C, carry);
+    // }
 
     fn get_reg16_from_target(&self, target: Target) -> u16 {
         match target {

@@ -7,6 +7,8 @@ pub mod mmu;
 pub mod session;
 pub mod utils;
 
+use crate::session::{DoctorSession, SessionHandler, SessionType, select_session_impl};
+
 use constants::*;
 use env_logger;
 use log::{error, info};
@@ -40,11 +42,11 @@ pub fn setup_logging(log_path: Option<PathBuf>) -> Result<(), io::Error> {
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
 pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
-    setup_logging(args.log_path);
+    setup_logging(args.log_path)?;
     match cartridge::load_rom(&args.load_rom) {
-        Ok(session) => {
+        Ok(buffer) => {
             // Starts the main read loop.
-            read_loop(session)?;
+            read_loop(select_session_impl(buffer, args.debug_doctor))?;
         }
         Err(e) => {
             panic!("Error: {:?}", e);
@@ -57,11 +59,8 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
 /// Reads op code forever and is the main loop for the emulation.
 /// Will only return anything if it is either done emulating, or
 /// if an error occured that made it panic.
-fn read_loop(mut session: Session) -> Result<(), io::Error> {
-    // While pointer counter is on a valid index.
+fn read_loop(mut session: SessionType) -> Result<(), io::Error> {
     loop {
-        // TODO replace with a permanent loop.
-
         match session.next() {
             Ok(()) => (),
             Err(e) => {
@@ -70,6 +69,4 @@ fn read_loop(mut session: Session) -> Result<(), io::Error> {
             }
         }
     }
-
-    Ok(())
 }

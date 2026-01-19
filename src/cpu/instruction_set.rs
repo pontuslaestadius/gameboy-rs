@@ -13,30 +13,54 @@ impl InstructionSet for Cpu {
         let dest_target = instruction.operands[0].0;
         let src_target = instruction.operands[1].0;
 
-        // Check if we are doing 16-bit addition (Target is HL or SP)
         match dest_target {
+            // --- 16-BIT WORLD ---
             Target::Register16(Reg16::HL) | Target::StackPointer => {
                 let val1 = self.read_target(dest_target, bus).as_u16();
-                let val2 = self.read_target(src_target, bus).as_u16();
 
-                // 16-bit ADD logic (HL = HL + r16)
+                // Fix: Handle the signed I8 vs unsigned U16 operand
+                let val2_raw = self.read_target(src_target, bus);
+                let val2 = match val2_raw {
+                    OperandValue::I8(v) => v as i16 as u16, // Sign-extend: e.g., -1 (0xFF) becomes 0xFFFF
+                    _ => val2_raw.as_u16(),                 // Standard u16 for HL + BC/DE/HL/SP
+                };
+
                 let res = val1.wrapping_add(val2);
-
                 self.write_target(dest_target, OperandValue::U16(res), bus);
-                return instruction.result_with_flags(
-                    false,
-                    false,
-                    (val1 & 0xFFF) + (val2 & 0xFFF) > 0xFFF,
-                    (val1 as u32 + val2 as u32) > 0xFFFF,
-                );
+
+                if dest_target == Target::StackPointer {
+                    // Special Flag Case: ADD SP, e8
+                    // Flags are based on the LOWER 8 bits of the addition!
+                    let v1_low = (val1 & 0xFF) as u8;
+                    let v2_low = (val2 & 0xFF) as u8;
+
+                    instruction.result_with_flags(
+                        false,                                  // Z always 0
+                        false,                                  // N always 0
+                        (v1_low & 0xF) + (v2_low & 0xF) > 0xF,  // H from bit 3
+                        (v1_low as u16 + v2_low as u16) > 0xFF, // C from bit 7
+                    )
+                } else {
+                    // Special Flag Case: ADD HL, r16
+                    instruction.result_with_flags(
+                        (self.f & FLAG_Z) != 0,                  // Z is unaffected (keep old value)
+                        false,                                   // N always 0
+                        (val1 & 0xFFF) + (val2 & 0xFFF) > 0xFFF, // H from bit 11
+                        (val1 as u32 + val2 as u32) > 0xFFFF,    // C from bit 15
+                    )
+                }
             }
+
+            // --- 8-BIT WORLD (Reg8 / Memory) ---
             _ => {
-                // 8-bit logic for ADD A, r8
+                // This handles ADD A, B | ADD A, C | ADD A, (HL) | ADD A, n8
                 let val = self.read_target(src_target, bus).as_u8();
                 let use_carry = instruction.mnemonic == Mnemonic::ADC;
-                let res = self.alu_8bit_add(self.a, val, use_carry);
-                self.a = res.value;
-                return instruction.result_with_flags(res.z, res.n, res.h, res.c);
+
+                let res = self.alu_8bit_add(self.get_reg8(Reg8::A), val, use_carry);
+
+                self.set_reg8(Reg8::A, res.value);
+                instruction.result_with_flags(res.z, res.n, res.h, res.c)
             }
         }
     }
@@ -79,26 +103,29 @@ impl InstructionSet for Cpu {
         // CP ONLY updates Flags (A remains unchanged)
         instruction.result_with_flags(res.z, res.n, res.h, res.c)
     }
+
     fn jr(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        // If there's only one operand (JR e8), it's an unconditional jump.
-        // If there are two (JR NZ, e8), the first is the condition.
-        let (cond_met, offset) = if instruction.operands.len() == 2 {
-            (
-                self.read_target(instruction.operands[0].0, bus).as_bool(),
-                self.read_target(instruction.operands[1].0, bus).as_i8(),
-            )
+        let (cond_target, offset_target) = if instruction.operands.len() == 2 {
+            (Some(instruction.operands[0].0), instruction.operands[1].0)
         } else {
-            (
-                true,
-                self.read_target(instruction.operands[0].0, bus).as_i8(),
-            )
+            (None, instruction.operands[0].0)
+        };
+
+        // ALWAYS read the offset to advance the PC past the instruction bytes
+        let offset = self.read_target(offset_target, bus).as_i8();
+
+        let cond_met = match cond_target {
+            Some(t) => self.read_target(t, bus).as_bool(),
+            None => true,
         };
 
         if cond_met {
-            // Use wrapping_add_signed to safely handle the i8 offset
+            // Jump relative to the PC *after* it has been moved past the offset byte
             self.pc = self.pc.wrapping_add_signed(offset as i16);
         }
 
+        // IMPORTANT: Ensure your main loop DOES NOT add instruction.bytes to the PC
+        // if you have already moved it manually here.
         InstructionResult::branching(&instruction, cond_met)
     }
 
@@ -151,12 +178,42 @@ impl InstructionSet for Cpu {
     }
 
     fn ld(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
+        // 1. Check if we are dealing with the 3-operand special case (LD HL, SP + e8)
+        if instruction.operands.len() == 3 {
+            let (dest_target, _) = instruction.operands[0]; // HL
+            let (sp_target, _) = instruction.operands[1]; // SP
+            let (imm_target, _) = instruction.operands[2]; // e8
+
+            // Read the two source values
+            let sp = self.read_target(sp_target, bus).as_u16();
+            let val_raw = self.read_target(imm_target, bus);
+
+            // Convert signed immediate to 16-bit
+            let r8 = match val_raw {
+                OperandValue::I8(v) => v as i16 as u16,
+                _ => val_raw.as_u16(),
+            };
+
+            let res = sp.wrapping_add(r8);
+
+            // Write the result to HL
+            self.write_target(dest_target, OperandValue::U16(res), bus);
+
+            // Calculate those special low-byte flags
+            let sp_low = (sp & 0xFF) as u8;
+            let r8_low = (r8 & 0xFF) as u8;
+
+            return instruction.result_with_flags(
+                false,
+                false,
+                (sp_low & 0xF) + (r8_low & 0xF) > 0xF,
+                (sp_low as u16 + r8_low as u16) > 0xFF,
+            );
+        }
+
+        // 2. Standard 2-operand case
         let (dest, src) = (instruction.operands[0].0, instruction.operands[1].0);
-
-        // read_target should return OperandValue (U8 or U16)
         let val = self.read_target(src, bus);
-
-        // write_target handles the routing
         self.write_target(dest, val, bus);
 
         instruction.result()
@@ -202,7 +259,7 @@ impl InstructionSet for Cpu {
         instruction.result()
     }
     fn ei(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
-        self.ime = true;
+        self.request_ime();
         instruction.result()
     }
     fn push(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
@@ -324,7 +381,7 @@ impl InstructionSet for Cpu {
         // instruction after the RET (handled by your central step loop).
         instruction.result()
     }
-    fn inc(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
+    fn inc(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
         let (target, _) = instruction.operands[0];
         match target {
             Target::Register8(reg) => {
@@ -397,12 +454,20 @@ impl InstructionSet for Cpu {
 
         instruction.result()
     }
-    fn halt(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
-        // If IME is enabled, the CPU stops until an interrupt occurs.
-        // If IME is disabled, there is a famous "Halt Bug" (skipping the next byte).
-        // For now, let's keep it simple:
-        self.halted = true;
+    fn halt(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
+        let pending = bus.read(0xFF0F) & bus.read(0xFFFF);
 
+        if self.ime {
+            self.halted = true;
+        } else {
+            if pending != 0 {
+                // THE HALT BUG: IME is 0 and an interrupt is already pending.
+                // The next instruction is "duplicated" or the PC fails to increment.
+                self.halt_bug_triggered = true;
+            } else {
+                self.halted = true;
+            }
+        }
         instruction.result()
     }
     fn daa(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
@@ -503,21 +568,34 @@ impl InstructionSet for Cpu {
     }
     fn rlca(&mut self, instruction: OpcodeInfo, _b: &mut impl Memory) -> InstructionResult {
         let a = self.get_reg8(Reg8::A);
-        let bit7 = (a & 0x80) >> 7;
-        let res = (a << 1) | bit7;
+        let carry = (a & 0x80) >> 7;
+        let res = (a << 1) | carry;
         self.set_reg8(Reg8::A, res);
-        self.set_flags_rotate(res, bit7 == 1, true); // true = A-version
-        instruction.result()
+
+        // IMPORTANT: RLCA/RRCA/RLA/RRA set Z to 0, not (res == 0)
+        instruction.result_with_flags(false, false, false, carry == 1)
     }
 
     fn rrca(&mut self, instruction: OpcodeInfo, _b: &mut impl Memory) -> InstructionResult {
         let a = self.get_reg8(Reg8::A);
+
+        // 1. Get the bit that will be rotated out (bit 0)
         let bit0 = a & 0x01;
+
+        // 2. Perform the rotation
         let res = (a >> 1) | (bit0 << 7);
+
+        // 3. Update the Accumulator
         self.set_reg8(Reg8::A, res);
-        self.set_flags_rotate(res, bit0 == 1, true);
-        instruction.result()
+
+        instruction.result_with_flags(
+            false,     // Z is forced to 0
+            false,     // N is forced to 0
+            false,     // H is forced to 0
+            bit0 == 1, // Carry flag
+        )
     }
+
     fn rlc(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         let (target, _) = instruction.operands[0];
         let val = self.read_target(target, bus).as_u8();
@@ -525,8 +603,8 @@ impl InstructionSet for Cpu {
         let res = (val << 1) | bit7;
 
         self.write_target(target, OperandValue::U8(res), bus);
-        self.set_flags_rotate(res, bit7 == 1, false); // false = CB-version
-        instruction.result()
+        // self.set_flags_rotate(res, bit7 == 1, false); // false = CB-version
+        instruction.result_with_flags(res == 0, false, false, bit7 == 1)
     }
 
     fn rl(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
@@ -537,8 +615,8 @@ impl InstructionSet for Cpu {
         let res = (val << 1) | old_c;
 
         self.write_target(target, OperandValue::U8(res), bus);
-        self.set_flags_rotate(res, new_c == 1, false);
-        instruction.result()
+        // self.set_flags_rotate(res, new_c == 1, false);
+        instruction.result_with_flags(res == 0, false, false, new_c == 1)
     }
     fn stop(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
         self.halted = true; // For now, treat like HALT

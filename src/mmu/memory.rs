@@ -46,7 +46,7 @@ impl memory_trait::Memory for Memory {
     fn increment_cycles(&mut self, value: u64) {
         // Optional: Stop after a few million cycles if you're running headless
         if self.total_cycles > 100_000_000 {
-            panic!("Test suite: Too many cycles.");
+            panic!("Test suite: Too many cycles: {} > 100m", self.total_cycles);
         }
         self.total_cycles += value
     }

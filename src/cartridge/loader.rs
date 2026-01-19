@@ -5,13 +5,13 @@ use log::info;
 use std::fs;
 use std::path::Path;
 
-pub fn load_rom(path: &Path) -> Result<Session, LoadError> {
+pub fn load_rom(path: &Path) -> Result<Vec<u8>, LoadError> {
     // info!("Loading ROM...");
     validate_extension(path)?;
 
     let buffer = fs::read(path)?;
 
-    Ok(Session::new(buffer))
+    Ok(buffer)
 }
 
 mod tests {
