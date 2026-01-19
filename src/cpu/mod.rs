@@ -5,6 +5,7 @@ pub mod operand;
 pub mod register;
 use crate::instruction::*;
 use crate::*;
+use log::info;
 
 #[derive(Debug)]
 pub struct Cpu {
@@ -257,7 +258,8 @@ impl Cpu {
         }
 
         // 2. Log State (Doctor expects state BEFORE the instruction)
-        info!("{}", self.format_for_doctor(bus));
+        // #[cfg(feature = "doctor")]
+        // info!("{}", self.format_for_doctor(bus));
 
         // This is the point where the CPU decides: "Do I execute the next instruction
         // at PC, or do I hijack the PC and go to a vector?"

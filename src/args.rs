@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-/// Simple program to greet a person
+/// Game Boy Emulator
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
@@ -22,6 +22,12 @@ pub struct Args {
 
     // Run for a predeterminate amount of instructions for Game Boy Doctor emulator test.
     // Provide the number of log lines, or CPU instructions the game expects to verify.
+    #[command(flatten)]
+    pub doctor: DoctorArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct DoctorArgs {
     #[arg(long)]
-    pub debug_doctor: Option<usize>,
+    pub golden_log: Option<PathBuf>,
 }

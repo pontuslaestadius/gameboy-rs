@@ -1,8 +1,12 @@
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::process::exit;
 
 use crate::Memory;
+use crate::args::Args;
 use crate::cartridge::Headers;
 use crate::cpu::Cpu;
+use crate::instruction::{OPCODES, OpcodeInfo};
 
 pub trait SessionHandler {
     fn next(&mut self) -> Result<(), String>;
@@ -37,33 +41,51 @@ impl SessionHandler for Session {
 /// Binds together a rom, a register and the flags.
 /// Used for holding the entire 'session' of a emulation.
 pub struct DoctorSession {
-    pub instruction_count: usize,
-    pub count: usize,
+    pub golden_log: BufReader<File>,
+    pub current_line: usize,
     pub memory: Memory,
     pub cpu: Cpu,
     pub headers: Headers,
+    pub previous_instruction: OpcodeInfo,
 }
 
 impl DoctorSession {
-    pub fn new(buffer: Vec<u8>, count: usize) -> Self {
+    pub fn new(buffer: Vec<u8>, args: Args) -> Self {
         let headers = Headers::new(&buffer);
+        let file = File::open(args.doctor.golden_log.unwrap()).unwrap();
+        let reader = BufReader::new(file);
         Self {
-            instruction_count: count,
-            count: 0,
+            golden_log: reader,
+            current_line: 1,
             memory: Memory::new(buffer),
             cpu: Cpu::new(),
             headers,
+            previous_instruction: OPCODES[0].unwrap(), // Maps out to NOP.
         }
     }
 }
 
 impl SessionHandler for DoctorSession {
     fn next(&mut self) -> Result<(), String> {
-        self.cpu.step(&mut self.memory);
-        self.count += 1;
-        if self.count >= self.instruction_count {
+        let mut expected: String = String::new();
+        let _ = self.golden_log.read_line(&mut expected);
+        let expected = expected.trim_end();
+        if expected.is_empty() {
+            println!("PASSED! All {} lines matched.", self.current_line);
             exit(0);
         }
+        let received: String = self.cpu.format_for_doctor(&self.memory);
+        self.cpu.step(&mut self.memory);
+        if expected != received {
+            println!("{}|Doctor Diff!", self.current_line);
+            println!("Expected: {}", expected);
+            println!("Received: {}", received);
+            exit(1);
+
+            // TODO: perform some witch-craft to do equal or better than Doctor output.
+            // Need to track the PREVIOUS opcode executed.
+        }
+        self.current_line += 1;
         return Ok(());
     }
 }
@@ -84,10 +106,9 @@ impl SessionHandler for SessionType {
     }
 }
 
-pub fn select_session_impl(buffer: Vec<u8>, debug_doctor: Option<usize>) -> SessionType {
-    if let Some(c) = debug_doctor {
-        SessionType::Doctor(DoctorSession::new(buffer, c))
-    } else {
-        SessionType::Normal(Session::new(buffer))
-    }
+pub fn select_session_impl(buffer: Vec<u8>, args: Args) -> SessionType {
+    #[cfg(feature = "doctor")]
+    return SessionType::Doctor(DoctorSession::new(buffer, args));
+    #[cfg(not(feature = "doctor"))]
+    return SessionType::Normal(Session::new(buffer));
 }

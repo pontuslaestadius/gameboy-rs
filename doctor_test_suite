@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
 
-# --- Color Definitions ---
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-
-# --- Configuration ---
 LOG_FILE="./output.log"
 DURATION=8
 EXTERNAL_DIR="./external"
@@ -17,36 +8,19 @@ DOCTOR_DIR="$EXTERNAL_DIR/gameboy-doctor"
 ROM_BASE_DIR="$ROM_DIR/cpu_instrs/individual"
 DOCTOR_PATH="$DOCTOR_DIR/gameboy-doctor"
 
-# --- ROM List ---
 roms=("" "01-special.gb" "02-interrupts.gb" "03-op sp,hl.gb" "04-op r,imm.gb" "05-op rp.gb" "06-ld r,r.gb" "07-jr,jp,call,ret,rst.gb" "08-misc instrs.gb" "09-op r,r.gb" "10-bit ops.gb" "11-op a,(hl).gb")
 
-# --- Functions ---
-
-print_header() {
-    echo -e "${CYAN}===================================================="
-    echo -e "      🕹️  GAMEBOY DOCTOR AUTOMATION SUITE  🕹️"
-    echo -e "====================================================${NC}"
-}
-
 check_dependencies() {
-    echo -e "${BLUE}🔍 Checking environment...${NC}"
     mkdir -p "$EXTERNAL_DIR"
-
     if [ ! -d "$DOCTOR_DIR" ]; then
-        echo -e "${YELLOW}📥 Cloning Gameboy Doctor...${NC}"
         git clone https://github.com/robert/gameboy-doctor.git "$DOCTOR_DIR"
     fi
-
     if [ ! -d "$ROM_DIR" ]; then
-        echo -e "${YELLOW}📥 Cloning Test ROMs...${NC}"
         git clone https://github.com/retrio/gb-test-roms.git "$ROM_DIR"
     fi
-
-    echo -e "${GREEN}✅ Environment setup!${NC}"
 }
 
 build_emulator() {
-    echo -e "${BLUE}🦀 Compiling Emulator...${NC}"
     if cargo build --release --quiet 2> /dev/null; then
         echo -e "${GREEN}✅ Build successful!${NC}"
     else
@@ -58,9 +32,7 @@ build_emulator() {
 run_single_test() {
     local index=$1
     local rom_name="${roms[$index]}"
-    local rom_path="${ROM_BASE_DIR}/${rom_name}"
-    
-    echo -e "\n${CYAN}🚀 Test [$index/11]: ${YELLOW}$rom_name${NC}"
+    local rom_path="${ROM_BASE_DIR}/${rom_name}"    
     
     if [[ ! -f "$rom_path" ]]; then
         echo -e "${RED}⚠️  ROM not found: $rom_path${NC}"
@@ -69,8 +41,6 @@ run_single_test() {
 
     rm -f "${LOG_FILE}"
     
-    echo -e "${BLUE}⏱️  Running for ${DURATION}s...${NC}"
-
     export RUST_BACKTRACE=1
     # This lines implementation requires, doctor to have unzipped the files once.
     lines=$(wc -l < ${DOCTOR_DIR}/truth/unzipped/cpu_instrs/${index}.log)
@@ -87,7 +57,6 @@ run_single_test() {
 
 # --- Execution Flow ---
 
-print_header
 check_dependencies
 
 build_emulator
@@ -97,7 +66,6 @@ read -p "👉 " user_input
 
 
 if [[ -z "$user_input" ]]; then
-    echo -e "${BLUE}🔄 Running full test suite...${NC}"
     for i in {1..11}; do
         run_single_test "$i"
     done
@@ -106,4 +74,3 @@ else
     run_single_test "$selection"
 fi
 
-echo -e "\n${CYAN}✨ All scheduled tasks finished.${NC}"

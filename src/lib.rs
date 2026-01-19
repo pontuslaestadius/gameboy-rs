@@ -7,11 +7,11 @@ pub mod mmu;
 pub mod session;
 pub mod utils;
 
-use crate::session::{DoctorSession, SessionHandler, SessionType, select_session_impl};
+use crate::session::{SessionHandler, SessionType, select_session_impl};
 
 use constants::*;
 use env_logger;
-use log::{error, info};
+use log::error;
 use mmu::memory::Memory;
 use mmu::memory_trait;
 use session::Session;
@@ -21,7 +21,7 @@ use std::path::PathBuf;
 
 use std::io::Write;
 
-pub fn setup_logging(log_path: Option<PathBuf>) -> Result<(), io::Error> {
+pub fn setup_logging(log_path: &Option<PathBuf>) -> Result<(), io::Error> {
     let env = env_logger::Env::default().default_filter_or("info");
     let mut builder = env_logger::Builder::from_env(env);
 
@@ -42,11 +42,11 @@ pub fn setup_logging(log_path: Option<PathBuf>) -> Result<(), io::Error> {
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
 pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
-    setup_logging(args.log_path)?;
+    setup_logging(&args.log_path)?;
     match cartridge::load_rom(&args.load_rom) {
         Ok(buffer) => {
             // Starts the main read loop.
-            read_loop(select_session_impl(buffer, args.debug_doctor))?;
+            read_loop(select_session_impl(buffer, args))?;
         }
         Err(e) => {
             panic!("Error: {:?}", e);
