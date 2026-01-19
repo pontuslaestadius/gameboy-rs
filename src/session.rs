@@ -1,5 +1,3 @@
-use log::info;
-
 use crate::Memory;
 use crate::cartridge::Headers;
 use crate::cpu::Cpu;

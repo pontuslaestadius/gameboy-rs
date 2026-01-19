@@ -20,3 +20,5 @@ log.txt
 # Log files output by the application
 *.log
 
+# For repositories we fetch for testing tooling.
+/external/

@@ -22,16 +22,13 @@ impl InstructionSet for Cpu {
                 // 16-bit ADD logic (HL = HL + r16)
                 let res = val1.wrapping_add(val2);
 
-                // Flags for ADD HL, rr:
-                // Z: Not affected!
-                // N: Reset (0)
-                // H: Set if carry from bit 11
-                // C: Set if carry from bit 15
-                self.set_flag(FLAG_N, false);
-                self.set_flag(FLAG_H, (val1 & 0xFFF) + (val2 & 0xFFF) > 0xFFF);
-                self.set_flag(FLAG_C, (val1 as u32 + val2 as u32) > 0xFFFF);
-
                 self.write_target(dest_target, OperandValue::U16(res), bus);
+                return instruction.result_with_flags(
+                    false,
+                    false,
+                    (val1 & 0xFFF) + (val2 & 0xFFF) > 0xFFF,
+                    (val1 as u32 + val2 as u32) > 0xFFFF,
+                );
             }
             _ => {
                 // 8-bit logic for ADD A, r8
@@ -39,40 +36,48 @@ impl InstructionSet for Cpu {
                 let use_carry = instruction.mnemonic == Mnemonic::ADC;
                 let res = self.alu_8bit_add(self.a, val, use_carry);
                 self.a = res.value;
-                self.apply_alu_flags(res);
+                return instruction.result_with_flags(res.z, res.n, res.h, res.c);
             }
         }
-
-        instruction.result()
     }
 
     fn jp(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let (target, _) = instruction.operands[0];
-        let dest_addr = match target {
-            // If it's n16 or a16, we just want the 16-bit immediate value from the bus
+        let mut should_jump = true;
+        let mut addr_index = 0;
+
+        // 1. Check if the first operand is a condition
+        if let (Target::Condition(cond), _) = instruction.operands[0] {
+            should_jump = self.check_condition(Target::Condition(cond));
+            addr_index = 1; // The address is the second operand
+        }
+
+        // 2. Always read the address (to advance PC), but only jump if condition is met
+        let (addr_target, _) = instruction.operands[addr_index];
+        let dest_addr = match addr_target {
             Target::Immediate16 | Target::AddrImmediate16 => {
                 let val = bus.read_u16(self.pc);
                 self.pc = self.pc.wrapping_add(2);
                 val
             }
             Target::Register16(Reg16::HL) => self.get_reg16(Reg16::HL),
-            _ => panic!("Unsupported JP target: {:?}", target),
+            _ => panic!("Unsupported JP address target: {:?}", addr_target),
         };
 
-        self.pc = dest_addr;
+        if should_jump {
+            self.pc = dest_addr;
+            // Logic for "Jump Taken" cycles would go here if needed
+        }
+
         instruction.result()
     }
 
     fn cp(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let (src_target, _) = instruction.operands[0]; // CP usually only lists the source
-        let val = self.read_target(src_target, bus).as_u8();
+        let val = self.get_src_val(&instruction, bus);
 
         let res = self.alu_8bit_sub(self.a, val, false);
 
         // CP ONLY updates Flags (A remains unchanged)
-        self.apply_alu_flags(res);
-
-        instruction.result()
+        instruction.result_with_flags(res.z, res.n, res.h, res.c)
     }
     fn jr(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         // If there's only one operand (JR e8), it's an unconditional jump.
@@ -98,7 +103,7 @@ impl InstructionSet for Cpu {
     }
 
     fn dec(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let (target, _) = instruction.operands[0];
+        let (target, _) = instruction.last_operand();
 
         match target {
             // 8-bit Decrement (Affects Z, N, H)
@@ -106,9 +111,7 @@ impl InstructionSet for Cpu {
                 let val = self.get_reg8(reg);
                 let (res, z, n, h) = self.calculate_dec_8bit(val);
                 self.set_reg8(reg, res);
-                self.set_z(z);
-                self.set_n(n);
-                self.set_h(h);
+                return instruction.result_with_flags(z, n, h, false);
             }
 
             // 8-bit Memory Decrement (e.g., DEC (HL))
@@ -117,15 +120,17 @@ impl InstructionSet for Cpu {
                 let val = bus.read(addr);
                 let (res, z, n, h) = self.calculate_dec_8bit(val);
                 bus.write(addr, res);
-                self.set_z(z);
-                self.set_n(n);
-                self.set_h(h);
+                return instruction.result_with_flags(z, n, h, false);
             }
 
             // 16-bit Decrement (Affects NO flags)
             Target::Register16(reg) => {
                 let val = self.get_reg16(reg);
                 self.set_reg16(reg, val.wrapping_sub(1));
+            }
+
+            Target::StackPointer => {
+                self.sp = self.sp.wrapping_sub(1);
             }
 
             _ => panic!("DEC not implemented for target {:?}", target),
@@ -142,9 +147,7 @@ impl InstructionSet for Cpu {
 
         // SUB updates A and Flags
         self.a = res.value;
-        self.apply_alu_flags(res);
-
-        instruction.result()
+        instruction.result_with_flags(res.z, res.n, res.h, res.c)
     }
 
     fn ld(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
@@ -160,46 +163,39 @@ impl InstructionSet for Cpu {
     }
 
     fn xor(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let (src, _) = instruction.operands[0];
-        let val = self.read_target(src, bus).as_u8();
+        let val = self.get_src_val(&instruction, bus);
 
         self.a ^= val;
 
-        // XOR Flags: Z if result 0, others always false
-        self.set_z(self.a == 0);
-        self.set_n(false);
-        self.set_h(false);
-        self.set_c(false);
-
-        instruction.result()
+        instruction.result_with_flags(self.a == 0, false, false, false)
     }
     fn or(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let (src, _) = instruction.operands[0];
-        let val = self.read_target(src, bus).as_u8();
+        // 1. Get the destination target (usually A)
+        let (dest_target, _) = instruction.operands[0];
 
-        let res = self.get_reg8(Reg8::A) | val;
-        self.set_reg8(Reg8::A, res);
+        // 2. Get the source target (e.g., C, B, or an immediate u8)
+        let (src_target, _) = instruction.operands[1];
 
-        self.set_z(res == 0);
-        self.set_n(false);
-        self.set_h(false);
-        self.set_c(false);
+        // 3. Read the values
+        let current_val = self.read_target(dest_target, bus).as_u8();
+        let operand_val = self.read_target(src_target, bus).as_u8();
 
-        instruction.result()
+        // 4. Perform the logic
+        let res = current_val | operand_val;
+
+        // 5. Write back to the destination defined in the spec
+        self.write_target(dest_target, OperandValue::U8(res), bus);
+
+        // 6. Return flag results
+        instruction.result_with_flags(res == 0, false, false, false)
     }
     fn and(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let (src, _) = instruction.operands[0];
-        let val = self.read_target(src, bus).as_u8();
+        let val = self.get_src_val(&instruction, bus);
 
         let res = self.get_reg8(Reg8::A) & val;
         self.set_reg8(Reg8::A, res);
 
-        self.set_z(res == 0);
-        self.set_n(false);
-        self.set_h(true); // Unique to AND
-        self.set_c(false);
-
-        instruction.result()
+        instruction.result_with_flags(res == 0, false, true, false)
     }
     fn di(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
         self.ime = false;
@@ -225,20 +221,23 @@ impl InstructionSet for Cpu {
     fn pop(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         let (dest, _) = instruction.operands[0];
 
-        let low = bus.read(self.sp) as u16;
-        self.sp = self.sp.wrapping_add(1);
+        // 1. Grab the 16-bit value from the stack (Little-Endian)
+        let val = self.pop_u16(bus);
 
-        let high = bus.read(self.sp) as u16;
-        self.sp = self.sp.wrapping_add(1);
+        // 2. Commit it to the registers (Big-Endian split: e.g. B=High, C=Low)
+        self.set_reg16_from_target(dest, val);
 
-        let mut val = (high << 8) | low;
-
-        // Quirk: Lower 4 bits of Flag register are always 0
+        // 3. Special case for AF to update the supervisor's flag state
         if let Target::Register16(Reg16::AF) = dest {
-            val &= 0xFFF0;
+            let f = (val & 0xFF) as u8;
+            return instruction.result_with_flags(
+                (f & FLAG_Z) != 0,
+                (f & FLAG_N) != 0,
+                (f & FLAG_H) != 0,
+                (f & FLAG_C) != 0,
+            );
         }
 
-        self.set_reg16_from_target(dest, val);
         instruction.result()
     }
     fn bit(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
@@ -252,12 +251,7 @@ impl InstructionSet for Cpu {
 
         let is_set = (val & (1 << bit_index)) != 0;
 
-        self.set_z(!is_set);
-        self.set_n(false);
-        self.set_h(true); // BIT always sets H to true
-        // C flag is left unchanged
-
-        instruction.result()
+        instruction.result_with_flags(!is_set, false, true, false)
     }
     fn cpl(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
         let a = self.get_reg8(Reg8::A);
@@ -275,31 +269,59 @@ impl InstructionSet for Cpu {
         instruction.result()
     }
     fn call(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        // 1. Read the address we are jumping to
+        let (cond_target, _) = instruction.operands[0];
+
+        // 1. Fetch the target address (3-byte instruction: Opcode + Low + High)
         let low = bus.read(self.pc) as u16;
         let high = bus.read(self.pc + 1) as u16;
         let target_addr = (high << 8) | low;
 
-        // 2. Push the address of the NEXT instruction onto the stack
-        let return_addr = self.pc + 2;
-        self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, (return_addr >> 8) as u8);
-        self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, (return_addr & 0xFF) as u8);
+        // 2. CHECK THE CONDITION!
+        if self.check_condition(cond_target) {
+            // Increment PC past the immediate address before pushing
+            let return_addr = self.pc + 2;
 
-        // 3. Jump
-        self.pc = target_addr;
+            // Push return address to stack
+            self.push_u16(bus, return_addr);
+
+            // Perform the jump
+            self.pc = target_addr;
+
+            // Conditional CALL takes more cycles if it jumps (usually 24 vs 12)
+            // Ensure your result reflects the "Taken" cycles if your system supports it.
+        } else {
+            // If condition fails, we just skip the address bytes
+            self.pc = self.pc.wrapping_add(2);
+        }
 
         instruction.result()
     }
     fn ret(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let low = bus.read(self.sp) as u16;
-        self.sp = self.sp.wrapping_add(1);
-        let high = bus.read(self.sp) as u16;
-        self.sp = self.sp.wrapping_add(1);
+        // 1. Check if this is a conditional return
+        // (In many specs, conditional RETs have a Condition as the first operand)
+        let should_return = if let Some((Target::Condition(cond), _)) = instruction.operands.get(0)
+        {
+            self.check_condition(Target::Condition(*cond))
+        } else {
+            true // Unconditional RET (0xC9)
+        };
 
-        self.pc = (high << 8) | low;
+        if should_return {
+            // 2. Pop the address from the stack
+            let low = bus.read(self.sp) as u16;
+            self.sp = self.sp.wrapping_add(1);
+            let high = bus.read(self.sp) as u16;
+            self.sp = self.sp.wrapping_add(1);
 
+            // 3. Jump to the return address
+            self.pc = (high << 8) | low;
+
+            // Conditional RET usually takes 20 cycles if taken, 8 if not.
+            // Unconditional RET is always 16.
+        }
+
+        // Note: If should_return is false, the PC remains at the
+        // instruction after the RET (handled by your central step loop).
         instruction.result()
     }
     fn inc(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
@@ -309,14 +331,16 @@ impl InstructionSet for Cpu {
                 let val = self.get_reg8(reg);
                 let res = val.wrapping_add(1);
                 self.set_reg8(reg, res);
-                self.set_z(res == 0);
-                self.set_n(false);
-                self.set_h((val & 0x0F) == 0x0F);
+                return instruction.result_with_flags(res == 0, false, (val & 0x0F) == 0x0F, false);
             }
             Target::Register16(reg) => {
                 let val = self.get_reg16(reg);
                 self.set_reg16(reg, val.wrapping_add(1));
             }
+            Target::StackPointer => {
+                self.sp = self.sp.wrapping_add(1);
+            }
+
             _ => todo!("INC for {:?}", target),
         }
         instruction.result()
@@ -344,9 +368,7 @@ impl InstructionSet for Cpu {
         let res = self.alu_8bit_add(self.get_reg8(Reg8::A), val, true);
 
         self.set_reg8(Reg8::A, res.value);
-        self.apply_alu_flags(res);
-
-        instruction.result()
+        instruction.result_with_flags(res.z, res.n, res.h, res.c)
     }
     fn set(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         // Operand 0 is the bit index (0-7), Operand 1 is the target
@@ -531,9 +553,7 @@ impl InstructionSet for Cpu {
         let res = self.alu_8bit_sub(self.get_reg8(Reg8::A), val, true);
 
         self.set_reg8(Reg8::A, res.value);
-        self.apply_alu_flags(res);
-
-        instruction.result()
+        instruction.result_with_flags(res.z, res.n, res.h, res.c)
     }
     fn rla(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
         let a = self.get_reg8(Reg8::A);

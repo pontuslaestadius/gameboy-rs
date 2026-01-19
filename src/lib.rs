@@ -15,10 +15,8 @@ use mmu::memory_trait;
 use session::Session;
 use std::io;
 
-use std::fs::OpenOptions;
 use std::path::PathBuf;
 
-use log::LevelFilter;
 use std::io::Write;
 
 pub fn setup_logging(log_path: Option<PathBuf>) -> Result<(), io::Error> {

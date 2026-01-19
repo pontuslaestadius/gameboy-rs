@@ -71,14 +71,14 @@ impl Cpu {
         self.pc = 0x0100; // The standard entry point for all cartridges
     }
     fn apply_alu_flags(&mut self, res: AluResult) {
-        self.set_flag(FLAG_Z, res.z);
-        self.set_flag(FLAG_N, res.n);
-        self.set_flag(FLAG_H, res.h);
-        self.set_flag(FLAG_C, res.c);
+        self.set_z(res.z);
+        self.set_n(res.n);
+        self.set_h(res.h);
+        self.set_c(res.c);
     }
     fn apply_flags(&mut self, spec: &FlagSpec, res: InstructionResult) {
         self.update_single_flag(FLAG_Z, spec.z, res.z);
-        self.update_single_flag(FLAG_N, spec.n, false); // N is almost always hardcoded in Spec
+        self.update_single_flag(FLAG_N, spec.n, res.n); // N is almost always hardcoded in Spec
         self.update_single_flag(FLAG_H, spec.h, res.h);
         self.update_single_flag(FLAG_C, spec.c, res.c);
     }
@@ -173,7 +173,9 @@ impl Cpu {
     }
 
     pub fn step(&mut self, bus: &mut impl memory_trait::Memory) {
-        info!("{}", self.format_for_doctor(bus));
+        if !self.halted {
+            info!("{}", self.format_for_doctor(bus));
+        }
         let opcode = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
 
@@ -187,6 +189,9 @@ impl Cpu {
 
         if let Some(code) = op {
             // Pass the bus into your execution logic
+            // if code.mnemonic == Mnemonic::OR {
+            //     println!("{}", code);
+            // }
 
             // Since we increment PC before this, we decrement it in our log.
             // info!("{:#X}. {:#X}. {}", self.pc - 1, opcode, code);
@@ -196,7 +201,7 @@ impl Cpu {
             // The Spec decides: "Do I take the instruction's proposal, hardcode a value, or do nothing?"
             self.apply_flags(&code.flags, result);
 
-            std::thread::sleep(T_CYCLE * result.cycles as u32);
+            // std::thread::sleep(T_CYCLE * result.cycles as u32);
             bus.increment_cycles(result.cycles as u64);
         }
     }
@@ -212,6 +217,31 @@ impl Cpu {
         let h = (value & 0x0F) == 0;
 
         (res, z, n, h)
+    }
+    fn check_condition(&self, target: Target) -> bool {
+        match target {
+            Target::Condition(cond) => match cond {
+                Condition::NotZero => (self.f & FLAG_Z) == 0,
+                Condition::Zero => (self.f & FLAG_Z) != 0,
+                Condition::NotCarry => (self.f & FLAG_C) == 0,
+                Condition::Carry => (self.f & FLAG_C) != 0,
+                _ => true, // Always true for unconditional
+            },
+            _ => true, // Not a conditional target
+        }
+    }
+
+    fn get_src_val(&mut self, instruction: &OpcodeInfo, bus: &mut impl memory_trait::Memory) -> u8 {
+        if instruction.operands.len() == 1 {
+            // Single operand instructions (like INC C or POP BC)
+            let (target, _) = instruction.operands[0];
+            self.read_target(target, bus).as_u8()
+        } else {
+            // Two operand instructions (like CP A, n8 or OR A, C)
+            // Usually, the second one (index 1) is the "Source"
+            let (target, _) = instruction.operands[1];
+            self.read_target(target, bus).as_u8()
+        }
     }
     /// Reads the actual value for a given operand target.
     /// This may increment PC if it reads immediate values from memory.
@@ -424,34 +454,30 @@ impl Cpu {
         }
     }
 
-    // fn check_condition(&self, condition: Condition) -> bool {
-    //     match condition {
-    //         Condition::None => true, // Unconditional jump
-    //         Condition::Z => self.get_flag(Z_FLAG),
-    //         Condition::NZ => !self.get_flag(Z_FLAG),
-    //         Condition::C => self.get_flag(C_FLAG),
-    //         Condition::NC => !self.get_flag(C_FLAG),
-    //     }
-    // }
+    /// Reads a 16-bit value from the current Stack Pointer and increments SP by 2.
+    /// Little-Endian: The byte at SP is the low byte, SP+1 is the high byte.
+    pub fn pop_u16(&mut self, bus: &impl memory_trait::Memory) -> u16 {
+        let low = bus.read(self.sp) as u16;
+        self.sp = self.sp.wrapping_add(1);
 
-    /// Pushes a 16-bit value onto the stack
-    fn push_u16(&mut self, bus: &mut impl memory_trait::Memory, value: u16) {
-        let bytes = value.to_be_bytes(); // PC is stored High then Low
-        self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, bytes[0]); // High byte
-        self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, bytes[1]); // Low byte
+        let high = bus.read(self.sp) as u16;
+        self.sp = self.sp.wrapping_add(1);
+
+        (high << 8) | low
     }
 
-    // fn check_condition_operand(&self, target: Target) -> bool {
-    //     match target {
-    //         Target::Register8(Reg8::Z) => self.get_flag(FLAG_Z),
-    //         Target::Register8(Reg8::NZ) => !self.get_flag(FLAG_Z),
-    //         Target::Register8(Reg8::C) => self.get_flag(FLAG_C),
-    //         Target::Register8(Reg8::NC) => !self.get_flag(FLAG_C),
-    //         _ => true,
-    //     }
-    // }
+    /// Decrements SP by 2 and writes a 16-bit value to the stack.
+    /// Little-Endian: The high byte goes to SP-1, the low byte goes to SP-2.
+    pub fn push_u16(&mut self, bus: &mut impl memory_trait::Memory, val: u16) {
+        let high = (val >> 8) as u8;
+        let low = (val & 0xFF) as u8;
+
+        self.sp = self.sp.wrapping_sub(1);
+        bus.write(self.sp, high);
+
+        self.sp = self.sp.wrapping_sub(1);
+        bus.write(self.sp, low);
+    }
 
     // Helper for the A-versions
     fn set_flags_rotate(&mut self, res: u8, carry: bool, is_a_version: bool) {
@@ -461,16 +487,6 @@ impl Cpu {
         self.set_flag(FLAG_C, carry);
     }
 
-    fn check_condition_operand(&self, target: Target) -> bool {
-        // Note: You'll need to check if your build.rs maps
-        // NZ/Z/NC/C to a specific Target variant.
-        // if it currently maps them to Target::Register8(Reg8::C), etc:
-        match target {
-            Target::Register8(Reg8::C) => self.get_flag(FLAG_C),
-            // ... handle others ...
-            _ => true,
-        }
-    }
     fn get_reg16_from_target(&self, target: Target) -> u16 {
         match target {
             Target::Register16(reg) => self.get_reg16(reg),

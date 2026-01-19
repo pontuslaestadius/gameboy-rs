@@ -179,6 +179,13 @@ impl OpcodeInfo {
     pub fn result_with_flags(&self, z: bool, n: bool, h: bool, c: bool) -> InstructionResult {
         InstructionResult::with_flags(self, z, n, h, c)
     }
+    pub fn last_operand(&self) -> (Target, bool) {
+        if self.operands.len() == 1 {
+            self.operands[0]
+        } else {
+            self.operands[1]
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
