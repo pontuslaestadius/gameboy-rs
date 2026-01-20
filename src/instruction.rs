@@ -166,6 +166,7 @@ pub struct OpcodeInfo {
     // Type is generated in build.rs
     pub mnemonic: Mnemonic,
     pub bytes: u8,
+    pub bit_index: u8,
     pub cycles: &'static [u8],
     pub operands: &'static [(Target, bool)], // (Target, is_immediate)
     pub flags: FlagSpec,

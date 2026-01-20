@@ -191,9 +191,15 @@ fn main() {
                 for o in &op.operands {
                     ops_str.push_str(&format!("({}, {}),", map_target(o), o.immediate));
                 }
+
+                let bit_index = if name == "CB_OPCODES" {
+                    (i >> 3) & 0x07
+                } else {
+                    0
+                };
                 code.push_str(&format!(
-                    "    Some(OpcodeInfo {{ mnemonic: Mnemonic::{}, bytes: {}, cycles: &{:?}, operands: &[{}], flags: FlagSpec {{{}}}  }}),\n",
-                    op.mnemonic, op.bytes, op.cycles, ops_str, flag_str
+                    "    Some(OpcodeInfo {{ mnemonic: Mnemonic::{}, bytes: {}, cycles: &{:?}, operands: &[{}], bit_index: {}, flags: FlagSpec {{{}}}  }}),\n",
+                    op.mnemonic, op.bytes, op.cycles, ops_str, bit_index, flag_str
                 ));
             } else {
                 code.push_str("    None,\n");

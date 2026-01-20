@@ -298,18 +298,25 @@ impl InstructionSet for Cpu {
         instruction.result()
     }
     fn bit(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        // BIT b, r8 (e.g., BIT 7, H)
-        let bit_index = match instruction.operands[0].0 {
-            Target::Immediate8 => bus.read(self.pc - 1), // Simplification depending on your decoder
-            _ => 0, // In many JSONs, the bit is embedded in the instruction metadata
-        };
+        // 1. Get the bit index directly from your newly updated struct
+        let bit = instruction.bit_index;
+
+        // 2. Read the target value (could be a register or memory via (HL))
         let (src, _) = instruction.operands[1];
         let val = self.read_target(src, bus).as_u8();
 
-        let is_set = (val & (1 << bit_index)) != 0;
+        // 3. Check if the specific bit is set
+        let is_set = (val & (1 << bit)) != 0;
 
-        instruction.result_with_flags(!is_set, false, true, self.get_flag(FLAG_C))
+        // 4. Update flags: Z is 1 if the bit was 0 (!is_set)
+        instruction.result_with_flags(
+            !is_set,               // Z
+            false,                 // N
+            true,                  // H (Always set for BIT)
+            self.get_flag(FLAG_C), // C (Carry remains unchanged)
+        )
     }
+
     fn cpl(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
         let a = self.get_reg8(Reg8::A);
         self.set_reg8(Reg8::A, !a);
@@ -451,32 +458,27 @@ impl InstructionSet for Cpu {
         instruction.result_with_flags(res.z, res.n, res.h, res.c)
     }
     fn set(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        // Operand 0 is the bit index (0-7), Operand 1 is the target
-        let bit_index = match instruction.operands[0].0 {
-            Target::Immediate8 => bus.read(self.pc - 1), // Check your decoder's specific implementation
-            _ => 0,
-        };
+        let bit = instruction.bit_index;
         let (target, _) = instruction.operands[1];
+
         let val = self.read_target(target, bus).as_u8();
+        let res = val | (1 << bit); // Force the bit to 1
 
-        let res = val | (1 << bit_index);
         self.write_target(target, OperandValue::U8(res), bus);
-
-        instruction.result()
+        instruction.result() // Return with no flag changes
     }
+
     fn res(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let bit_index = match instruction.operands[0].0 {
-            Target::Immediate8 => bus.read(self.pc - 1),
-            _ => 0,
-        };
+        let bit = instruction.bit_index;
         let (target, _) = instruction.operands[1];
+
         let val = self.read_target(target, bus).as_u8();
+        let res = val & !(1 << bit); // Force the bit to 0
 
-        let res = val & !(1 << bit_index);
         self.write_target(target, OperandValue::U8(res), bus);
-
-        instruction.result()
+        instruction.result() // Return with no flag changes
     }
+
     fn halt(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         let pending = bus.read(0xFF0F) & bus.read(0xFFFF);
 
