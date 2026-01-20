@@ -308,7 +308,7 @@ impl InstructionSet for Cpu {
 
         let is_set = (val & (1 << bit_index)) != 0;
 
-        instruction.result_with_flags(!is_set, false, true, false)
+        instruction.result_with_flags(!is_set, false, true, self.get_flag(FLAG_C))
     }
     fn cpl(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
         let a = self.get_reg8(Reg8::A);
@@ -381,7 +381,7 @@ impl InstructionSet for Cpu {
         // instruction after the RET (handled by your central step loop).
         instruction.result()
     }
-    fn inc(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {
+    fn inc(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         let (target, _) = instruction.operands[0];
         match target {
             Target::Register8(reg) => {
@@ -394,8 +394,31 @@ impl InstructionSet for Cpu {
                 let val = self.get_reg16(reg);
                 self.set_reg16(reg, val.wrapping_add(1));
             }
+
             Target::StackPointer => {
                 self.sp = self.sp.wrapping_add(1);
+            }
+
+            Target::AddrRegister16(reg) => {
+                // 1. Get the address from the register (e.g., HL)
+                let addr = self.get_reg16(reg);
+
+                // 2. Read the value FROM memory at that address
+                let val = bus.read(addr);
+
+                // 3. Increment the value
+                let res = val.wrapping_add(1);
+
+                // 4. Write the new value back to that same memory address
+                bus.write(addr, res);
+
+                // 5. Update flags (Z, N=0, H, C is unaffected)
+                return instruction.result_with_flags(
+                    res == 0,             // Zero flag
+                    false,                // Subtract flag (always reset for INC)
+                    (val & 0x0F) == 0x0F, // Half-carry flag
+                    false,                // Carry flag (NOT changed by 8-bit INC)
+                );
             }
 
             _ => todo!("INC for {:?}", target),

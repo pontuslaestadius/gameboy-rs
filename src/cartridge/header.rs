@@ -17,7 +17,7 @@ Address Range,Name,Purpose
 0x014E–0x014F,Global Checksum,A checksum of the entire ROM (the GB hardware doesn't actually check this).
 */
 
-use log::{error, info};
+use log::error;
 
 #[derive(Debug, Default)]
 pub struct Headers {

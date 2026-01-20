@@ -3,7 +3,7 @@ use crate::memory_trait;
 /// 64 Kb - The standard Game Boy address space
 const MEMORY_SIZE: usize = 1024 * 64;
 
-pub struct Memory {
+pub struct Bus {
     // Must use a Vec since an Array would use the stack, and crash the application.
     // Using the heap is required.
     pub rom_size: usize,
@@ -12,7 +12,7 @@ pub struct Memory {
     total_cycles: u64,
 }
 
-impl Memory {
+impl Bus {
     pub fn new(rom_data: Vec<u8>) -> Self {
         let rom_size = rom_data.len();
         // Create a zeroed array on the heap
@@ -22,7 +22,7 @@ impl Memory {
         let copy_len = std::cmp::min(rom_size, MEMORY_SIZE);
         buffer[..copy_len].copy_from_slice(&rom_data[..copy_len]);
 
-        Memory {
+        Bus {
             rom_size,
             data: buffer,
             total_cycles: 0,
@@ -30,7 +30,7 @@ impl Memory {
     }
 }
 
-impl memory_trait::Memory for Memory {
+impl memory_trait::Memory for Bus {
     // fn read(&self, addr: u16) -> u8 {
     fn read(&self, addr: u16) -> u8 {
         if addr == 0xFF44 {

@@ -5,6 +5,7 @@ pub mod cpu;
 pub mod instruction;
 pub mod mmu;
 pub mod session;
+pub mod testing;
 pub mod utils;
 
 use crate::session::{SessionHandler, SessionType, select_session_impl};
@@ -12,9 +13,8 @@ use crate::session::{SessionHandler, SessionType, select_session_impl};
 use constants::*;
 use env_logger;
 use log::error;
-use mmu::memory::Memory;
+use mmu::memory::Bus;
 use mmu::memory_trait;
-use session::Session;
 use std::io;
 
 use std::path::PathBuf;

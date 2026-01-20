@@ -1,0 +1,6 @@
+[submodule "testing_tools/gameboy-doctor"]
+	path = testing_tools/gameboy-doctor
+	url = https://github.com/robert/gameboy-doctor.git
+[submodule "testing_tools/gb-test-roms"]
+	path = testing_tools/gb-test-roms
+	url = https://github.com/retrio/gb-test-roms.git

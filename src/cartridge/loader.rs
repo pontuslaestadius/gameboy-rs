@@ -1,7 +1,5 @@
 use super::error::LoadError;
 use crate::cartridge::validation::validate_extension;
-use crate::*;
-use log::info;
 use std::fs;
 use std::path::Path;
 
@@ -14,6 +12,7 @@ pub fn load_rom(path: &Path) -> Result<Vec<u8>, LoadError> {
     Ok(buffer)
 }
 
+#[cfg(test)]
 mod tests {
 
     use super::*;

@@ -3,9 +3,12 @@ pub mod instruction_set;
 
 pub mod operand;
 pub mod register;
+pub mod snapshot;
+
+use crate::cpu::snapshot::CpuSnapshot;
 use crate::instruction::*;
 use crate::*;
-use log::info;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct Cpu {
@@ -239,6 +242,18 @@ impl Cpu {
         self.ime_scheduled = 2;
     }
 
+    /// Read the current opcode without mutating the current state.
+    /// Returns the OpcodeInfo, and the number of bytes to move the pc forward.
+    pub fn get_current_opcode(&self, bus: &impl memory_trait::Memory) -> (OpcodeInfo, u8) {
+        let opcode = bus.read(self.pc);
+        if opcode == CB_PREFIX_OPCODE_BYTE {
+            let cb = bus.read(self.pc + 1);
+            (CB_OPCODES[cb as usize].unwrap(), 2)
+        } else {
+            (OPCODES[opcode as usize].unwrap(), 1)
+        }
+    }
+
     pub fn step(&mut self, bus: &mut impl memory_trait::Memory) {
         // 1. Check for interrupts (WAKE UP LOGIC)
         let pending = bus.read(0xFF0F) & bus.read(0xFFFF);
@@ -276,7 +291,6 @@ impl Cpu {
         }
 
         let opcode = bus.read(self.pc);
-
         if self.halt_bug_triggered {
             // The PC DOES NOT increment this time.
             // The next instruction will read this same byte again.
@@ -319,7 +333,7 @@ impl Cpu {
                 Condition::Zero => (self.f & FLAG_Z) != 0,
                 Condition::NotCarry => (self.f & FLAG_C) == 0,
                 Condition::Carry => (self.f & FLAG_C) != 0,
-                _ => true, // Always true for unconditional
+                // _ => true, // Always true for unconditional
             },
             _ => true, // Not a conditional target
         }
@@ -596,35 +610,34 @@ impl Cpu {
             _ => panic!("Target {:?} is not a 16-bit register", target),
         }
     }
-    pub fn format_for_doctor(&self, bus: &impl memory_trait::Memory) -> String {
-        // Read 4 bytes starting at PC for the PCMEM section
-        let pcmem0 = bus.read(self.pc);
-        let pcmem1 = bus.read(self.pc.wrapping_add(1));
-        let pcmem2 = bus.read(self.pc.wrapping_add(2));
-        let pcmem3 = bus.read(self.pc.wrapping_add(3));
 
-        // Format: A:00 F:11 B:22 C:33 D:44 E:55 H:66 L:77 SP:8888 PC:9999 PCMEM:AA,BB,CC,DD
-        format!(
-            "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",
-            self.a,
-            self.f,
-            self.b,
-            self.c,
-            self.d,
-            self.e,
-            self.h,
-            self.l,
-            self.sp,
-            self.pc,
-            pcmem0,
-            pcmem1,
-            pcmem2,
-            pcmem3
-        )
+    pub fn take_snapshot(&self, bus: &impl memory_trait::Memory) -> CpuSnapshot {
+        CpuSnapshot {
+            a: self.a,
+            f: self.f,
+            b: self.b,
+            c: self.c,
+            d: self.d,
+            e: self.e,
+            h: self.h,
+            l: self.l,
+            sp: self.sp,
+            pc: self.pc,
+
+            // n a very accurate emulator, reading 4 bytes at $PC$ every single step might
+            // technically trigger "bus reads" that shouldn't happen (if you have
+            // side-effect-heavy hardware mapped to memory). For debugging purposes, this
+            // is usually fine, but ensure your bus.read() for the snapshot doesn't
+            // accidentally "consume" or "trigger" hardware events (clearing a serial flag).
+            pcmem: [
+                bus.read(self.pc),
+                bus.read(self.pc.wrapping_add(1)),
+                bus.read(self.pc.wrapping_add(2)),
+                bus.read(self.pc.wrapping_add(3)),
+            ],
+        }
     }
 }
-
-use std::fmt;
 
 impl fmt::Display for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

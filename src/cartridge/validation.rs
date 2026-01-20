@@ -1,14 +1,5 @@
 use super::error::LoadError;
-use crate::*;
-use std::fs;
 use std::path::Path;
-
-pub fn load_rom(path: &Path) -> Result<Session, LoadError> {
-    validate_extension(path)?;
-
-    let buffer = fs::read(path)?;
-    Ok(Session::new(buffer))
-}
 
 pub fn validate_extension(path: &Path) -> Result<(), LoadError> {
     let ext = path
@@ -27,6 +18,7 @@ pub fn validate_extension(path: &Path) -> Result<(), LoadError> {
     }
 }
 
+#[cfg(test)]
 mod tests {
 
     use super::*;

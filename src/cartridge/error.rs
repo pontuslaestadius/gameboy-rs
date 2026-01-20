@@ -31,6 +31,7 @@ impl From<io::Error> for LoadError {
     }
 }
 
+#[cfg(test)]
 mod tests {
 
     use super::*;

@@ -81,7 +81,7 @@ fn map_target(operand: &RawOperand) -> String {
         ("NZ", _, _, _) => "Target::Condition(Condition::NotZero)".into(),
         ("Z", _, _, _) => "Target::Condition(Condition::Zero)".into(),
         ("NC", _, _, _) => "Target::Condition(Condition::NotCarry)".into(),
-        ("C", _, _, _) if operand.immediate => "Target::Condition(Condition::Carry)".into(),
+        // ("C", _, _, _) if operand.immediate => "Target::Condition(Condition::Carry)".into(),
 
         // --- Relative Address Offset ---
         // 'e8' is a signed 8-bit displacement used in JR (Jump Relative)
