@@ -478,7 +478,7 @@ impl InstructionSet for Cpu {
     }
 
     fn halt(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let pending = bus.read(0xFF0F) & bus.read(0xFFFF);
+        let pending = (bus.read(IF_ADDR) & bus.read(IE_ADDR)) & 0x1F;
 
         if self.ime {
             self.halted = true;
@@ -732,5 +732,40 @@ impl InstructionSet for Cpu {
         // - Z will be set to (res == 0)
         // - N, H, C will be forced to false (Reset) regardless of what you pass here.
         instruction.result_with_flags(res == 0, false, false, false)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_halt_bug_flag_activation() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(vec![0; 0x10000]);
+
+        // 1. Define the HALT instruction metadata (adjust to your OpcodeInfo structure)
+        let halt_info = OPCODES[0x76].unwrap();
+        assert_eq!(halt_info.mnemonic, Mnemonic::HALT);
+
+        // 2. Condition: IME is OFF
+        cpu.ime = false;
+
+        // 3. Condition: Interrupt is PENDING
+        // Ensure both IE and IF have a matching bit set (e.g., V-Blank bit 0)
+        bus.write(0xFFFF, 0x01); // IE
+        bus.write(0xFF0F, 0x01); // IF
+
+        // 4. Call the halt function directly
+        cpu.halt(halt_info, &mut bus);
+
+        // 5. Verification
+        assert!(
+            cpu.halt_bug_triggered,
+            "HALT bug should be triggered when IME=0 and Interrupt is pending"
+        );
+        assert!(
+            !cpu.halted,
+            "CPU should NOT enter halted state when the HALT bug occurs"
+        );
     }
 }

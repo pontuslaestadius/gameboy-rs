@@ -54,7 +54,7 @@ doctor-%: $(UNZIPPED_DIR)/%.log
 	@echo "Testing ROM: $(ROM_$*)"
 	@RUST_BACKTRACE=1 cargo run --quiet --release --features doctor -- \
 		--golden-log $< \
-		--log-path ./output.log \
+		--log-path /tmp/doctor-output.log \
 		--load-rom "$(ROM_DIR)/$(ROM_$*)"
 
 

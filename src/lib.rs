@@ -6,6 +6,7 @@ pub mod instruction;
 pub mod mmu;
 pub mod session;
 pub mod testing;
+pub mod timer;
 pub mod utils;
 
 use crate::session::{SessionHandler, SessionType, select_session_impl};

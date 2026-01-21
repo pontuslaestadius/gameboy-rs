@@ -1,15 +1,18 @@
-use crate::memory_trait;
+use log::info;
+
+use crate::{memory_trait, timer::Timer};
 
 /// 64 Kb - The standard Game Boy address space
 const MEMORY_SIZE: usize = 1024 * 64;
 
 pub struct Bus {
+    timer: Timer,
     // Must use a Vec since an Array would use the stack, and crash the application.
     // Using the heap is required.
     pub rom_size: usize,
     // This puts exactly 64KB on the HEAP, not the STACK
     pub data: Box<[u8; MEMORY_SIZE]>,
-    total_cycles: u64,
+    // total_cycles: u64,
 }
 
 impl Bus {
@@ -23,38 +26,81 @@ impl Bus {
         buffer[..copy_len].copy_from_slice(&rom_data[..copy_len]);
 
         Bus {
+            timer: Timer::new(),
             rom_size,
             data: buffer,
-            total_cycles: 0,
+            // total_cycles: 0,
         }
     }
 }
 
+impl Bus {}
+
 impl memory_trait::Memory for Bus {
-    // fn read(&self, addr: u16) -> u8 {
     fn read(&self, addr: u16) -> u8 {
-        if addr == 0xFF44 {
+        match addr {
+            0xFF04 => self.timer.div,
+            0xFF05 => self.timer.tima,
+            0xFF06 => self.timer.tma,
+            0xFF07 => self.timer.tac,
             // If we are in the middle of a CPU test, just return 0x90
             // to let the CPU pass the 'Wait for V-Blank' loop.
             //         // Return a rotating value to satisfy "Wait for LY == X" loops
             //         // This is a common hack for CPU-only testing
             // return ((self.total_cycles) / 456 % 154) as u8;
-            return 0x90;
+            0xFF44 => 0x90,
+            _ => self.data[addr as usize],
         }
-        self.data[addr as usize]
     }
-    fn increment_cycles(&mut self, value: u64) {
-        // Optional: Stop after a few million cycles if you're running headless
-        if self.total_cycles > 100_000_000_000 {
-            panic!("Test suite: Too many cycles: {} > 10b", self.total_cycles);
+
+    // Inside your Bus/Memory write logic
+    fn write_div(&mut self) {
+        // 1. Check if the current bit being monitored by TAC is 1
+        let bit_to_monitor = self.timer.get_tac_bit();
+        let bit_was_high = (self.timer.internal_counter >> bit_to_monitor) & 0x01 == 1;
+        let timer_enabled = self.timer.timer_enabled();
+
+        // 2. Reset the counter
+        self.timer.internal_counter = 0;
+        self.timer.div = 0;
+
+        // 3. Falling Edge Glitch:
+        // If the bit was high and the timer was enabled,
+        // resetting to 0 causes a falling edge!
+        if timer_enabled && bit_was_high {
+            self.timer.increment_tima();
         }
-        self.total_cycles += value
+    }
+    fn tick_components(&mut self, cycles: u8) {
+        if self.timer.tick(cycles) {
+            info!("tick_components: timer interrup");
+            // Bit 2 is the Timer Interrupt
+            let interrupt_flags = self.read(0xFF0F);
+            self.write(0xFF0F, interrupt_flags | 0b100);
+        }
+
+        // You would also tick your PPU (Graphics) here later
+        // self.ppu.tick(cycles);
+    }
+    /// @deprecated
+    fn increment_cycles(&mut self, value: u64) {
+        self.tick_components(value as u8);
     }
     fn write(&mut self, addr: u16, val: u8) {
         // 1. Handle Echo RAM Mirroring (0xE000 - 0xFDFF mirrors 0xC000 - 0xDFFF)
         if (0xE000..=0xFDFF).contains(&addr) {
             let mirrored_addr = addr - 0x2000;
             self.data[mirrored_addr as usize] = val;
+        }
+
+        match addr {
+            0xFF04 => self.write_div(), // Trigger the reset glitch
+            0xFF05 => self.timer.tima = val,
+            0xFF06 => self.timer.tma = val,
+            0xFF07 => {
+                self.timer.write_tac(val);
+            } // Trigger the TAC glitch
+            _ => {}
         }
 
         if addr == 0xFF44 {
@@ -72,5 +118,89 @@ impl memory_trait::Memory for Bus {
             io::stdout().flush().unwrap();
         }
         self.data[addr as usize] = val;
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::mmu::memory_trait::Memory;
+
+    #[test]
+    fn test_bus_timer_interrupt_integration() {
+        let mut bus = Bus::new(Vec::new()); // Your memory/system component
+
+        // 1. Configure Timer via Bus writes
+        bus.write(0xFF06, 0xAA); // TMA = 170
+        bus.write(0xFF07, 0x05); // TAC = Enabled, 16-cycle mode
+        bus.write(0xFF05, 0xFE); // TIMA = 254
+
+        // Clear Interrupt Flags
+        bus.write(0xFF0F, 0x00);
+
+        // 2. We need 32 T-cycles to trigger two increments (254 -> 255 -> 0/Reload)
+        // If your bus.tick() takes M-cycles, divide by 4.
+        // Assuming bus.tick(cycles) takes T-cycles here:
+        for _ in 0..32 {
+            bus.tick_components(1);
+        }
+
+        // 3. Verify the chain reaction
+        let tima = bus.read(0xFF05);
+        let if_reg = bus.read(0xFF0F);
+
+        assert_eq!(tima, 0xAA, "TIMA should have reloaded from TMA (0xAA)");
+        assert!(
+            if_reg & 0x04 != 0,
+            "Timer interrupt bit (2) should be set in IF register"
+        );
+    }
+    #[test]
+    fn test_timer_via_tick_components() {
+        let mut bus = Bus::new(Vec::new());
+
+        // Setup: Fast timer (16 cycle mode), enabled
+        bus.write(0xFF07, 0x05);
+        bus.write(0xFF06, 0xAA); // TMA = 0xAA
+        bus.write(0xFF05, 0xFF); // TIMA = 0xFF (One step from overflow)
+        bus.write(0xFF0F, 0x00); // Clear Interrupt Flags
+
+        // Execute 16 cycles (enough for one TIMA increment at speed 01)
+        bus.tick_components(16);
+
+        // Verify
+        let tima = bus.read(0xFF05);
+        let if_reg = bus.read(0xFF0F);
+
+        assert_eq!(
+            tima, 0xAA,
+            "TIMA should have wrapped around to TMA value 0xAA"
+        );
+        assert_eq!(
+            if_reg & 0x04,
+            0x04,
+            "Timer interrupt bit (2) should be set in IF register"
+        );
+    }
+    #[test]
+    fn test_bus_div_reset_glitch() {
+        let mut bus = Bus::new(Vec::new());
+
+        bus.write(0xFF07, 0x05); // Enable, 16-cycle mode (Bit 3)
+        bus.write(0xFF05, 0x00); // TIMA = 0
+
+        // 1. Tick 8 times. Internal counter is 8 (0b1000). Bit 3 is HIGH.
+        bus.tick_components(8);
+        assert_eq!(bus.read(0xFF05), 0, "TIMA should not have incremented yet");
+
+        // 2. Write to DIV to reset it.
+        // This should trigger the falling edge glitch and increment TIMA.
+        bus.write(0xFF04, 0x00);
+
+        assert_eq!(
+            bus.read(0xFF05),
+            1,
+            "TIMA should have incremented due to DIV reset glitch"
+        );
     }
 }

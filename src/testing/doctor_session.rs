@@ -2,6 +2,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::exit;
 
+use log::info;
+
 use crate::args::Args;
 use crate::cartridge::Headers;
 use crate::cpu::Cpu;
@@ -84,6 +86,47 @@ pub struct RingBufferDoctorState {
     pub line: usize,
 }
 
+impl DoctorSession {
+    pub fn on_empty_golden_log(&mut self) {
+        // Force write to memory to flush the serial port.
+        self.memory.write(0xFF02, 0x81);
+        // Print a new line to avoid overwriting the test results.
+        println!("");
+        println!("PASSED! All {} lines matched.", self.current_line);
+        exit(0);
+    }
+    pub fn on_mismatch(&self, expected: CpuSnapshot, _received: CpuSnapshot) {
+        println!("ERROR: Mismatch CPU state.");
+        println!("");
+        let len = self.history.get_history().len();
+        for (i, entry) in self.history.get_history().iter().enumerate() {
+            if i == len - 1 {
+                println!(
+                    "{: <10} Expected: {}",
+                    entry.line,
+                    expected.to_doctor_string()
+                );
+                println!(
+                    "           Was:      {}",
+                    output_string_diff(
+                        &expected.to_doctor_string(),
+                        &entry.state.to_doctor_string()
+                    )
+                );
+            } else {
+                println!(
+                    "{: <10} State:    {}",
+                    entry.line,
+                    entry.state.to_doctor_string()
+                );
+                println!("           Instr:    {}", entry.instruction);
+            }
+        }
+
+        exit(1);
+    }
+}
+
 impl SessionHandler for DoctorSession {
     fn next(&mut self) -> Result<(), String> {
         let mut expected: String = String::new();
@@ -91,48 +134,19 @@ impl SessionHandler for DoctorSession {
         let expected = expected.trim_end();
 
         if expected.is_empty() {
-            // Force write to memory to flush the serial port.
-            self.memory.write(0xFF02, 0x81);
-            // Print a new line to avoid overwriting the test results.
-            println!("");
-            println!("PASSED! All {} lines matched.", self.current_line);
-            exit(0);
+            self.on_empty_golden_log();
         }
         let expected = CpuSnapshot::from_string(expected).unwrap();
         let received = self.cpu.take_snapshot(&self.memory);
         let (code, _nr) = self.cpu.get_current_opcode(&self.memory);
+        info!("Line: {}", self.current_line);
+        info!("Code: {}", code);
+        info!("State: {}", received.to_doctor_string());
         self.history.push(code, received, self.current_line);
         self.cpu.step(&mut self.memory);
 
         if expected != received {
-            println!("ERROR: Mismatch CPU state.");
-            println!("");
-            let len = self.history.get_history().len();
-            for (i, entry) in self.history.get_history().iter().enumerate() {
-                if i == len - 1 {
-                    println!(
-                        "{: <10} Expected: {}",
-                        entry.line,
-                        expected.to_doctor_string()
-                    );
-                    println!(
-                        "           Was:      {}",
-                        output_string_diff(
-                            &expected.to_doctor_string(),
-                            &entry.state.to_doctor_string()
-                        )
-                    );
-                } else {
-                    println!(
-                        "{: <10} State:    {}",
-                        entry.line,
-                        entry.state.to_doctor_string()
-                    );
-                    println!("           Instr:    {}", entry.instruction);
-                }
-            }
-
-            exit(1);
+            self.on_mismatch(expected, received);
         }
         self.current_line += 1;
         return Ok(());
