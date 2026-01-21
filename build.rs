@@ -26,7 +26,7 @@ struct RawOperand {
     immediate: bool,
 }
 
-fn map_target(operand: &RawOperand) -> String {
+fn map_target(operand: &RawOperand, op_code: u8) -> String {
     // 1. Handle specialized Bit targets first
     if let Ok(bit) = operand.name.parse::<u8>() {
         return format!("Target::Bit({})", bit);
@@ -40,12 +40,52 @@ fn map_target(operand: &RawOperand) -> String {
         return format!("Target::Vector(0x{:02X})", val);
     }
 
+    let name = operand.name.as_str();
+    // These specific Opcode ranges ONLY use "C" as a Condition
+    let is_branch_opcode = match op_code {
+        0x20 | 0x28 | 0x30 | 0x38 => true, // JR NZ, Z, NC, C
+        0xC0 | 0xC8 | 0xD0 | 0xD8 => true, // RET NZ, Z, NC, C
+        0xC2 | 0xCA | 0xD2 | 0xDA => true, // JP NZ, Z, NC, C
+        0xC4 | 0xCC | 0xD4 | 0xDC => true, // CALL NZ, Z, NC, C
+        _ => false,
+    };
+
+    if is_branch_opcode && name == "C" {
+        return "Target::Condition(Condition::Carry)".into();
+    }
+
+    // Also handle the other conditions for these opcodes
+    if is_branch_opcode {
+        match name {
+            "NZ" => return "Target::Condition(Condition::NotZero)".into(),
+            "Z" => return "Target::Condition(Condition::Zero)".into(),
+            "NC" => return "Target::Condition(Condition::NotCarry)".into(),
+            _ => {}
+        }
+    }
+
     match (
         operand.name.as_str(),
         operand.immediate,
         operand.increment.unwrap_or(false),
         operand.decrement.unwrap_or(false),
     ) {
+        // --- Jump Conditions (Handle these early!) ---
+        // ("NZ", _, _, _) => "Target::Condition(Condition::NotZero)".into(),
+        // ("Z", _, _, _) => "Target::Condition(Condition::Zero)".into(),
+        // ("NC", _, _, _) => "Target::Condition(Condition::NotCarry)".into(),
+
+        // The "C" Ambiguity Fix:
+        // In JR C, e8 or CALL C, n16, 'C' is a flag condition.
+        // In those cases, 'immediate' is often false in the JSON,
+        // whereas 'LD A, C' has 'C' as immediate: true.
+        // ("C", false, false, false) => "Target::Condition(Condition::Carry)".into(),
+
+        // --- Standard Direct Register Access ---
+        ("A", true, _, _) => "Target::Register8(Reg8::A)".into(),
+        ("B", true, _, _) => "Target::Register8(Reg8::B)".into(),
+        ("C", true, _, _) => "Target::Register8(Reg8::C)".into(), // Register C
+
         // --- 16-bit Pointers with Side Effects ---
         ("HL", false, true, false) => "Target::AddrRegister16Increment(Reg16::HL)".into(),
         ("HL", false, false, true) => "Target::AddrRegister16Decrement(Reg16::HL)".into(),
@@ -58,9 +98,9 @@ fn map_target(operand: &RawOperand) -> String {
         ("C", false, _, _) => "Target::AddrRegister8(Reg8::C)".into(), // For LDH A, (C)
 
         // --- Standard Direct Register Access ---
-        ("A", true, _, _) => "Target::Register8(Reg8::A)".into(),
-        ("B", true, _, _) => "Target::Register8(Reg8::B)".into(),
-        ("C", true, _, _) => "Target::Register8(Reg8::C)".into(),
+        // ("A", true, _, _) => "Target::Register8(Reg8::A)".into(),
+        // ("B", true, _, _) => "Target::Register8(Reg8::B)".into(),
+        // ("C", true, _, _) => "Target::Register8(Reg8::C)".into(),
         ("D", true, _, _) => "Target::Register8(Reg8::D)".into(),
         ("E", true, _, _) => "Target::Register8(Reg8::E)".into(),
         ("H", true, _, _) => "Target::Register8(Reg8::H)".into(),
@@ -78,9 +118,9 @@ fn map_target(operand: &RawOperand) -> String {
         ("a8", _, _, _) => "Target::AddrImmediate8".into(),
         ("a16", _, _, _) => "Target::AddrImmediate16".into(),
         // --- Jump Conditions ---
-        ("NZ", _, _, _) => "Target::Condition(Condition::NotZero)".into(),
-        ("Z", _, _, _) => "Target::Condition(Condition::Zero)".into(),
-        ("NC", _, _, _) => "Target::Condition(Condition::NotCarry)".into(),
+        // ("NZ", _, _, _) => "Target::Condition(Condition::NotZero)".into(),
+        // ("Z", _, _, _) => "Target::Condition(Condition::Zero)".into(),
+        // ("NC", _, _, _) => "Target::Condition(Condition::NotCarry)".into(),
         // ("C", _, _, _) if operand.immediate => "Target::Condition(Condition::Carry)".into(),
 
         // --- Relative Address Offset ---
@@ -167,7 +207,7 @@ fn main() {
             "pub const {}: [Option<OpcodeInfo>; 256] = [\n",
             name
         ));
-        for i in 0..256 {
+        for i in 0..=255 {
             let key = format!("0x{:02X}", i);
             if let Some(op) = table.get(&key) {
                 if op.mnemonic == "PREFIX" || op.mnemonic.starts_with("ILLEGAL") {
@@ -189,7 +229,7 @@ fn main() {
                 let mut ops_str = String::new();
                 unique_mnemonics.insert(op.mnemonic.clone());
                 for o in &op.operands {
-                    ops_str.push_str(&format!("({}, {}),", map_target(o), o.immediate));
+                    ops_str.push_str(&format!("({}, {}),", map_target(o, i), o.immediate));
                 }
 
                 let bit_index = if name == "CB_OPCODES" {

@@ -5,8 +5,11 @@ pub mod operand;
 pub mod register;
 pub mod snapshot;
 
+use log::info;
+
 use crate::cpu::snapshot::CpuSnapshot;
 use crate::instruction::*;
+use crate::mmu::memory_trait::Memory;
 use crate::*;
 use std::fmt;
 
@@ -36,9 +39,6 @@ pub struct Cpu {
     pub ime_scheduled: u8,
 
     halt_bug_triggered: bool,
-    // These represent the hardware registers at 0xFF0F and 0xFFFF
-    pub if_reg: u8, // Interrupt Flag (What happened?)
-    pub ie_reg: u8, // Interrupt Enable (What do we care about?)
 }
 
 struct AluResult {
@@ -66,8 +66,6 @@ impl Cpu {
             halted: false,
             ime: false,
             ime_scheduled: 0,
-            if_reg: 0,
-            ie_reg: 0,
             halt_bug_triggered: false,
         }
     }
@@ -85,12 +83,18 @@ impl Cpu {
         self.pc = 0x0100; // The standard entry point for all cartridges
     }
     fn service_interrupt(&mut self, bit: u8, bus: &mut impl memory_trait::Memory) {
+        assert!(
+            self.ime,
+            "ERROR: Clearing interrupt bit while IME is disabled!"
+        );
         // 1. Disable interrupts to prevent recursive nesting
         self.ime = false;
 
         // 2. Acknowledge the interrupt by clearing the specific bit in IF
         // Note: Use bitmask clearing, not XOR, to be safe.
-        self.if_reg &= !(1 << bit);
+        let mut if_reg = bus.read(0xFF0F);
+        if_reg &= !(1 << bit);
+        bus.write(0xFF0F, if_reg);
 
         // 3. Push current PC onto the stack
         // The stack grows downwards, so we decrement SP before each write.
@@ -115,33 +119,29 @@ impl Cpu {
         };
     }
 
-    fn check_interrupts(&mut self, bus: &mut impl memory_trait::Memory) {
-        let if_reg = bus.read(0xFF0F);
-        let ie_reg = bus.read(0xFFFF);
-        let pending = if_reg & ie_reg;
+    fn check_interrupts(&mut self, bus: &mut impl Memory) -> bool {
+        if !self.ime {
+            return false;
+        }
 
+        let pending = bus.read(0xFF0F) & bus.read(0xFFFF);
         if pending == 0 {
-            return;
+            return false;
         }
 
-        // ANY pending interrupt wakes the CPU, even if IME is 0
-        if self.halted {
-            self.halted = false;
+        // Find the highest priority interrupt
+        // Bit 0 (VBlank) > Bit 1 (STAT) > Bit 2 (Timer) > Bit 3 (Serial) > Bit 4 (Joypad)
+        let bit = pending.trailing_zeros() as u8;
+
+        if bit < 5 {
+            info!("Clearing interrupt bit: {}", bit);
+            self.service_interrupt(bit, bus);
+            return true;
         }
 
-        // Only jump to the handler if Master Enable is ON
-        if self.ime {
-            for bit in 0..5 {
-                if (pending >> bit) & 1 == 1 {
-                    // Clear the flag and push PC
-                    let cleared_if = if_reg & !(1 << bit);
-                    bus.write(0xFF0F, cleared_if);
-                    self.service_interrupt(bit, bus);
-                    break;
-                }
-            }
-        }
+        false
     }
+
     fn apply_flags(&mut self, spec: &FlagSpec, res: InstructionResult) {
         self.update_single_flag(FLAG_Z, spec.z, res.z);
         self.update_single_flag(FLAG_N, spec.n, res.n); // N is almost always hardcoded in Spec
@@ -255,41 +255,51 @@ impl Cpu {
     }
 
     pub fn step(&mut self, bus: &mut impl memory_trait::Memory) {
-        // 1. Check for interrupts (WAKE UP LOGIC)
+        // Layer 2: The "Halt/Wake" Logic
+        // If we are halted, can we wake up? If not, stay halted.
+        if !self.handle_halt_logic(bus) {
+            return; // Still halted, 4 cycles consumed, move to next step.
+        }
+        // Layer 3: The "Hijack" (Interrupts)
+        // Does an interrupt steal the PC before we fetch an opcode?
+        if self.handle_interrupts(bus) {
+            return; // PC hijacked to vector, 20 cycles consumed, move to next step.
+        }
+        // Layer 4: The "Prep" (IME Delay)
+        // Tick the EI delay timer.
+        self.update_ime_delay();
+
+        // Layer 5: The "Fetch & Execute"
+        // The core logic. PC moves and registers change.
+        self.fetch_and_execute(bus);
+    }
+    fn handle_interrupts(&mut self, bus: &mut impl Memory) -> bool {
+        if !self.ime {
+            return false;
+        }
+
         let pending = bus.read(0xFF0F) & bus.read(0xFFFF);
-
-        if pending != 0 {
-            self.halted = false; // Any pending interrupt wakes the CPU
-            if self.ime {
-                self.service_interrupt(0, bus); // Jump to vector
-                return; // Skip normal instruction fetch
-            }
+        if pending == 0 {
+            return false;
         }
 
-        // 2. If still halted, just tick cycles and return
-        if self.halted {
-            bus.increment_cycles(4); // HALT consumes 4 cycles per "step"
-            return;
+        let bit = pending.trailing_zeros() as u8;
+        if bit < 5 {
+            self.service_interrupt(bit, bus); // Pushes PC, jumps to vector, clears IF bit
+            bus.increment_cycles(20);
+            return true; // Hijack successful
         }
-
-        // 2. Log State (Doctor expects state BEFORE the instruction)
-        // #[cfg(feature = "doctor")]
-        // info!("{}", self.format_for_doctor(bus));
-
-        // This is the point where the CPU decides: "Do I execute the next instruction
-        // at PC, or do I hijack the PC and go to a vector?"
-        self.check_interrupts(bus);
-
-        // 3. IME Delay Logic
-        // If EI was called in the previous step, IME turns on NOW.
-        // Note: check_interrupts already ran, so it won't fire until the NEXT step.
+        false
+    }
+    fn update_ime_delay(&mut self) {
         if self.ime_scheduled > 0 {
             self.ime_scheduled -= 1;
             if self.ime_scheduled == 0 {
                 self.ime = true;
             }
         }
-
+    }
+    fn fetch_and_execute(&mut self, bus: &mut impl Memory) {
         let opcode = bus.read(self.pc);
         if self.halt_bug_triggered {
             // The PC DOES NOT increment this time.
@@ -308,10 +318,27 @@ impl Cpu {
         };
 
         if let Some(code) = op {
+            let if_reg = bus.read(0xFF0F);
+            let ie_reg = bus.read(0xFFFF);
+            info!("if: {}, ie: {}", if_reg, ie_reg);
+            info!("{:?}", self);
+            info!("{}", code);
             let result = self.dispatch(code, bus);
             self.apply_flags(&code.flags, result);
             bus.increment_cycles(result.cycles as u64);
         }
+    }
+    fn handle_halt_logic(&mut self, bus: &mut impl Memory) -> bool {
+        let pending = bus.read(0xFF0F) & bus.read(0xFFFF);
+        if pending != 0 {
+            self.halted = false;
+        }
+
+        if self.halted {
+            bus.increment_cycles(4);
+            return false; // Tells the onion to stop here
+        }
+        true // Continue to next layer
     }
 
     fn calculate_dec_8bit(&self, value: u8) -> (u8, bool, bool, bool) {

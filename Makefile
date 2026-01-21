@@ -52,8 +52,9 @@ build:
 # Example: 'make doctor-2'
 doctor-%: $(UNZIPPED_DIR)/%.log
 	@echo "Testing ROM: $(ROM_$*)"
-	@cargo run --quiet --features doctor -- \
+	@RUST_BACKTRACE=1 cargo run --quiet --release --features doctor -- \
 		--golden-log $< \
+		--log-path ./output.log \
 		--load-rom "$(ROM_DIR)/$(ROM_$*)"
 
 

@@ -338,4 +338,11 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn verify_jr_gets_carry_instead_of_c_registry() {
+        let info = OPCODES[0x38].unwrap();
+        let carry_target = info.operands[0].0;
+        assert_eq!(carry_target, Target::Condition(Condition::Carry));
+    }
 }

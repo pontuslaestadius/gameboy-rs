@@ -124,8 +124,6 @@ impl InstructionSet for Cpu {
             self.pc = self.pc.wrapping_add_signed(offset as i16);
         }
 
-        // IMPORTANT: Ensure your main loop DOES NOT add instruction.bytes to the PC
-        // if you have already moved it manually here.
         InstructionResult::branching(&instruction, cond_met)
     }
 
@@ -586,6 +584,11 @@ impl InstructionSet for Cpu {
                 let offset = self.get_reg8(Reg8::C);
                 let val = bus.read(0xFF00 + offset as u16);
                 self.set_reg8(Reg8::A, val);
+            }
+
+            (Target::AddrRegister8(from), Target::Register8(to)) => {
+                let offset = self.get_reg8(from);
+                bus.write(0xFF00 + offset as u16, self.get_reg8(to));
             }
             _ => todo!("LDH variant not handled"),
         }
