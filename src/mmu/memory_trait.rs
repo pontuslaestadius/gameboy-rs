@@ -45,6 +45,6 @@ pub trait Memory {
     }
 
     fn pending_interrupt(&self) -> bool {
-        ((self.read(IF_ADDR) & self.read(IE_ADDR)) & 0x1F) != 0
+        ((self.read_if() & self.read_ie()) & 0x1F) != 0
     }
 }

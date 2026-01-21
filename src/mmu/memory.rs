@@ -1,4 +1,4 @@
-use log::info;
+use log::{debug, info};
 
 use crate::{memory_trait, timer::Timer};
 
@@ -73,7 +73,7 @@ impl memory_trait::Memory for Bus {
     }
     fn tick_components(&mut self, cycles: u8) {
         if self.timer.tick(cycles) {
-            info!("tick_components: timer interrup");
+            debug!("tick_components: timer interrup");
             // Bit 2 is the Timer Interrupt
             let interrupt_flags = self.read(0xFF0F);
             self.write(0xFF0F, interrupt_flags | 0b100);

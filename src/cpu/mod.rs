@@ -249,7 +249,7 @@ impl Cpu {
 
         // 1. Handle Halt Logic
         if let StepFlowController::EarlyReturn(n) = self.handle_halt_logic(bus) {
-            info!("step: halt early exit");
+            // info!("step: halt early exit");
             bus.tick_components(n as u8);
             return;
         }
@@ -276,7 +276,7 @@ impl Cpu {
         total_cycles += self.fetch_and_execute(bus);
 
         // 5. Final Tick
-        info!("step: {total_cycles} cycles");
+        // info!("step: {total_cycles} cycles");
         bus.tick_components(total_cycles);
     }
 
@@ -321,7 +321,7 @@ impl Cpu {
         if let Some(code) = op {
             // info!("if: {}, ie: {}", bus.read_if(), bus.read_ie());
             // info!("{}", self);
-            info!("Dispatching: {}", code);
+            info!("Dispatching: {}, bytes: {}", code, code.bytes);
             let result = self.dispatch(code, bus);
             self.apply_flags(&code.flags, result);
             return result.cycles;
@@ -1317,5 +1317,129 @@ mod test {
         cpu.a += 1;
 
         assert_eq!(cpu.a, 2, "A should be 2 after the double execution");
+    }
+    #[test]
+    fn test_halt_pc_movement_only() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(vec![0; 0x10000]);
+        cpu.pc = 0xC36F;
+        bus.write(0xC36F, 0x76); // HALT
+        bus.write(0xC370, 0x00); // NOP
+
+        // We use the same conditions as your log (IME=0, IF=0)
+        cpu.ime = false;
+        bus.write(0xFF0F, 0x00);
+
+        cpu.step(&mut bus);
+
+        // After HALT, PC should be exactly one byte forward.
+        assert_eq!(
+            cpu.pc, 0xC370,
+            "PC should move from C36F to C370 after HALT fetch"
+        );
+        assert!(cpu.halted, "CPU should be halted");
+    }
+    #[test]
+    fn test_halt_bug_pc_locking() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(vec![0; 0x10000]);
+        cpu.pc = 0xC000;
+        cpu.ime = false;
+
+        bus.write(0xC000, 0x76); // HALT
+        bus.write(0xFFFF, 0x01); // IE
+        bus.write(0xFF0F, 0x01); // IF (Bug triggered!)
+
+        // 1. Fetch the 0x76
+        let op = cpu.fetch_byte(&mut bus);
+        assert_eq!(cpu.pc, 0xC001, "PC must move to C001 after fetching HALT");
+
+        // 2. Execute HALT
+        let info = OPCODES[0x76].unwrap();
+        assert_eq!(info.mnemonic, Mnemonic::HALT);
+        cpu.halt(info, &mut bus);
+        assert!(cpu.halt_bug_triggered);
+
+        // 3. The NEXT fetch (the bugged one)
+        let next_op = cpu.fetch_byte(&mut bus);
+        assert_eq!(cpu.pc, 0xC001, "BUG: PC should NOT move during this fetch!");
+
+        // 4. The THIRD fetch (the recovery)
+        let final_op = cpu.fetch_byte(&mut bus);
+        assert_eq!(cpu.pc, 0xC002, "PC should finally move to C002 now");
+    }
+    #[test]
+    fn test_manual_bug_execution() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(vec![0; 0x10000]);
+        cpu.pc = 0xC000;
+        cpu.ime = false;
+
+        bus.write(0xC000, 0x76); // HALT
+        bus.write(0xC001, 0x3C); // INC A
+        bus.write(0xFFFF, 0x01); // IE
+        bus.write(0xFF0F, 0x01); // IF
+
+        // 1. Manually run the first instruction (HALT)
+        cpu.fetch_and_execute(&mut bus);
+        assert!(cpu.halt_bug_triggered);
+        assert_eq!(cpu.pc, 0xC001);
+
+        // 2. Manually run the second instruction (The first INC A)
+        cpu.fetch_and_execute(&mut bus);
+        assert_eq!(cpu.a, 1, "A should be 1 after one fetch_and_execute");
+        assert_eq!(cpu.pc, 0xC001, "PC should STILL be C001");
+
+        // 3. Manually run the third instruction (The second INC A)
+        cpu.fetch_and_execute(&mut bus);
+        assert_eq!(cpu.a, 2, "A should be 2 after second fetch_and_execute");
+        assert_eq!(cpu.pc, 0xC002, "PC should finally be C002");
+    }
+    #[test]
+    fn test_fetch_byte_bug_isolation() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(vec![0; 0x10000]);
+        cpu.pc = 0xC000;
+
+        // Arm the bug manually
+        cpu.halt_bug_triggered = true;
+        bus.write(0xC000, 0x3C); // INC A
+
+        // First fetch: should NOT increment PC
+        let op1 = cpu.fetch_byte(&mut bus);
+        assert_eq!(op1, 0x3C);
+        assert_eq!(cpu.pc, 0xC000, "PC should not have moved!");
+        assert!(!cpu.halt_bug_triggered, "Flag should be reset");
+
+        // Second fetch: should increment PC
+        let op2 = cpu.fetch_byte(&mut bus);
+        assert_eq!(op2, 0x3C);
+        assert_eq!(cpu.pc, 0xC001, "PC should move now");
+    }
+    #[test]
+    fn test_pc_and_flag_alignment() {
+        let mut cpu = Cpu::new();
+        let mut bus = Bus::new(vec![0; 0x10000]);
+        cpu.pc = 0xC000;
+        cpu.ime = false;
+
+        bus.write(0xC000, 0x76); // HALT
+        bus.write(0xC001, 0x3C); // INC A
+        bus.write(0xFFFF, 0x01); // IE
+        bus.write(0xFF0F, 0x01); // IF
+
+        // Step 1: Execute HALT
+        cpu.fetch_and_execute(&mut bus);
+        // PC should be C001, Bug should be true
+        assert_eq!(cpu.pc, 0xC001);
+        assert!(cpu.halt_bug_triggered);
+
+        // Step 2: Execute INC A
+        cpu.fetch_and_execute(&mut bus);
+        // PC should be C001 (because fetch_byte skipped increment)
+        // BUT! Did your dispatch/length-adder move it to C002?
+
+        println!("PC after first INC A: {:04X}", cpu.pc);
+        println!("Bug Flag after first INC A: {}", cpu.halt_bug_triggered);
     }
 }
