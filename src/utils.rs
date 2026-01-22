@@ -52,3 +52,20 @@ pub fn octal_digit_from_binary_list_i16(list: &[u8]) -> i16 {
     }
     result * signed_clear
 }
+
+pub fn output_string_diff(string_a: &str, string_b: &str) -> String {
+    if string_a.len() != string_b.len() {
+        panic!(
+            "String_diff requires equal lengths. A: {}, B: {}",
+            string_a.len(),
+            string_b.len()
+        );
+    }
+
+    // Zip pairs up characters: (a[0], b[0]), (a[1], b[1]), etc.
+    string_a
+        .chars()
+        .zip(string_b.chars())
+        .map(|(a, b)| if a == b { ' ' } else { b })
+        .collect()
+}

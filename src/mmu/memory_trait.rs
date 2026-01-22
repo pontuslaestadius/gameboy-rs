@@ -1,16 +1,16 @@
 use crate::constants::{IE_ADDR, IF_ADDR};
 
 pub trait Memory {
-    fn read(&self, addr: u16) -> u8;
+    fn read_byte(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, val: u8);
     fn increment_cycles(&mut self, value: u64);
-    fn tick_components(&mut self, cycles: u8);
+    fn tick_components(&mut self, cycles: u8) -> bool;
     fn write_div(&mut self);
 
     // Helper for 16-bit reads (Little Endian)
     fn read_u16(&self, addr: u16) -> u16 {
-        let low = self.read(addr) as u16;
-        let high = self.read(addr.wrapping_add(1)) as u16;
+        let low = self.read_byte(addr) as u16;
+        let high = self.read_byte(addr.wrapping_add(1)) as u16;
         (high << 8) | low
     }
 
@@ -21,15 +21,11 @@ pub trait Memory {
     }
 
     fn read_ie(&self) -> u8 {
-        self.read(IE_ADDR)
+        self.read_byte(IE_ADDR)
     }
 
     fn read_if(&self) -> u8 {
-        self.read(IF_ADDR)
-    }
-
-    fn read_byte(&self, addr: u16) -> u8 {
-        self.read(addr)
+        self.read_byte(IF_ADDR)
     }
 
     fn write_byte(&mut self, addr: u16, val: u8) {

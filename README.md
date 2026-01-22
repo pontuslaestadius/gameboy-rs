@@ -68,10 +68,10 @@ cargo build --release
 ### Run
 
 ```bash
-cargo run --release -- path/to/rom.gb
+cargo run --release -- --load-rom path/to/rom.gb
 ```
 
-> ⚠️ At early stages, many commercial ROMs may not boot correctly.
+> ⚠️ At early stages, most commercial ROMs may not boot correctly.
 
 ---
 

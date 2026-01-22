@@ -1,8 +1,7 @@
 // Coded with the help of Gemini.
 
-use crate::cpu::*;
-use crate::instruction::*;
-use crate::memory_trait::Memory;
+use crate::cpu::Cpu;
+use crate::mmu::Memory;
 use crate::*;
 
 impl InstructionSet for Cpu {
@@ -142,7 +141,7 @@ impl InstructionSet for Cpu {
             // 8-bit Memory Decrement (e.g., DEC (HL))
             Target::AddrRegister16(reg) => {
                 let addr = self.get_reg16(reg);
-                let val = bus.read(addr);
+                let val = bus.read_byte(addr);
                 let (res, z, n, h) = self.calculate_dec_8bit(val);
                 bus.write(addr, res);
                 return instruction.result_with_flags(z, n, h, false);
@@ -334,8 +333,8 @@ impl InstructionSet for Cpu {
         let (cond_target, _) = instruction.operands[0];
 
         // 1. Fetch the target address (3-byte instruction: Opcode + Low + High)
-        let low = bus.read(self.pc) as u16;
-        let high = bus.read(self.pc + 1) as u16;
+        let low = bus.read_byte(self.pc) as u16;
+        let high = bus.read_byte(self.pc + 1) as u16;
         let target_addr = (high << 8) | low;
 
         // 2. CHECK THE CONDITION!
@@ -370,9 +369,9 @@ impl InstructionSet for Cpu {
 
         if should_return {
             // 2. Pop the address from the stack
-            let low = bus.read(self.sp) as u16;
+            let low = bus.read_byte(self.sp) as u16;
             self.sp = self.sp.wrapping_add(1);
-            let high = bus.read(self.sp) as u16;
+            let high = bus.read_byte(self.sp) as u16;
             self.sp = self.sp.wrapping_add(1);
 
             // 3. Jump to the return address
@@ -409,7 +408,7 @@ impl InstructionSet for Cpu {
                 let addr = self.get_reg16(reg);
 
                 // 2. Read the value FROM memory at that address
-                let val = bus.read(addr);
+                let val = bus.read_byte(addr);
 
                 // 3. Increment the value
                 let res = val.wrapping_add(1);
@@ -433,9 +432,9 @@ impl InstructionSet for Cpu {
 
     fn reti(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         // 1. Pop the PC from the stack (identical to RET)
-        let low = bus.read(self.sp) as u16;
+        let low = bus.read_byte(self.sp) as u16;
         self.sp = self.sp.wrapping_add(1);
-        let high = bus.read(self.sp) as u16;
+        let high = bus.read_byte(self.sp) as u16;
         self.sp = self.sp.wrapping_add(1);
 
         self.pc = (high << 8) | low;
@@ -478,7 +477,7 @@ impl InstructionSet for Cpu {
     }
 
     fn halt(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let pending = (bus.read(IF_ADDR) & bus.read(IE_ADDR)) & 0x1F;
+        let pending = (bus.read_byte(IF_ADDR) & bus.read_byte(IE_ADDR)) & 0x1F;
 
         if self.ime {
             self.halted = true;
@@ -568,21 +567,21 @@ impl InstructionSet for Cpu {
         match (dest, src) {
             // LDH (n8), A -> Store A into 0xFF00 + n8
             (Target::AddrImmediate8, Target::Register8(Reg8::A)) => {
-                let offset = bus.read(self.pc);
+                let offset = bus.read_byte(self.pc);
                 self.pc = self.pc.wrapping_add(1);
                 bus.write(0xFF00 + offset as u16, self.get_reg8(Reg8::A));
             }
             // LDH A, (n8) -> Load 0xFF00 + n8 into A
             (Target::Register8(Reg8::A), Target::AddrImmediate8) => {
-                let offset = bus.read(self.pc);
+                let offset = bus.read_byte(self.pc);
                 self.pc = self.pc.wrapping_add(1);
-                let val = bus.read(0xFF00 + offset as u16);
+                let val = bus.read_byte(0xFF00 + offset as u16);
                 self.set_reg8(Reg8::A, val);
             }
             // LDH A, (C) -> Load 0xFF00 + C into A
             (Target::Register8(Reg8::A), Target::AddrRegister8(Reg8::C)) => {
                 let offset = self.get_reg8(Reg8::C);
-                let val = bus.read(0xFF00 + offset as u16);
+                let val = bus.read_byte(0xFF00 + offset as u16);
                 self.set_reg8(Reg8::A, val);
             }
 

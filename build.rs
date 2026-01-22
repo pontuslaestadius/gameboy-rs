@@ -191,7 +191,8 @@ fn map_flag_action(action: &str) -> String {
 }
 
 fn main() {
-    let json_str = fs::read_to_string("src/data/opcodes.json").expect("Missing opcodes.json");
+    let json_str =
+        fs::read_to_string("src/opcodes/data/opcodes.json").expect("Missing opcodes.json");
     let data: FullJson = serde_json::from_str(&json_str).expect("JSON parse error");
 
     let out_dir = env::var("OUT_DIR").unwrap();
@@ -254,7 +255,7 @@ fn main() {
 
     fs::write(&dest_path, code).unwrap();
     println!("wrote generated opcodes to: {:?}", dest_path);
-    println!("cargo:rerun-if-changed=src/data/opcodes.json");
+    println!("cargo:rerun-if-changed=src/opcodes/data/opcodes.json");
     println!("cargo:rerun-if-changed=src/instruction.rs");
     println!("cargo:rerun-if-changed=build.rs");
 }

@@ -6,11 +6,9 @@ use log::info;
 
 use crate::args::Args;
 use crate::cartridge::Headers;
-use crate::cpu::Cpu;
-use crate::cpu::snapshot::CpuSnapshot;
-use crate::instruction::OpcodeInfo;
-use crate::mmu::memory_trait::Memory;
-use crate::session::SessionHandler;
+use crate::cpu::{Cpu, CpuSnapshot};
+use crate::mmu::Memory;
+use crate::utils::output_string_diff;
 use crate::*;
 
 /// Binds together a rom, a register and the flags.
@@ -125,10 +123,8 @@ impl DoctorSession {
 
         exit(1);
     }
-}
 
-impl SessionHandler for DoctorSession {
-    fn next(&mut self) -> Result<(), String> {
+    pub fn next(&mut self) {
         let mut expected: String = String::new();
         let _ = self.golden_log.read_line(&mut expected);
         let expected = expected.trim_end();
@@ -149,23 +145,11 @@ impl SessionHandler for DoctorSession {
             self.on_mismatch(expected, received);
         }
         self.current_line += 1;
-        return Ok(());
     }
 }
 
-fn output_string_diff(string_a: &str, string_b: &str) -> String {
-    if string_a.len() != string_b.len() {
-        panic!(
-            "String_diff requires equal lengths. A: {}, B: {}",
-            string_a.len(),
-            string_b.len()
-        );
+pub fn doctor_main_loop(mut session: DoctorSession) {
+    loop {
+        session.next();
     }
-
-    // Zip pairs up characters: (a[0], b[0]), (a[1], b[1]), etc.
-    string_a
-        .chars()
-        .zip(string_b.chars())
-        .map(|(a, b)| if a == b { ' ' } else { b })
-        .collect()
 }

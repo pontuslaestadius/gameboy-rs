@@ -17,6 +17,16 @@ impl Timer {
         }
     }
 
+    pub fn read_byte(&self, addr: u16) -> u8 {
+        match addr {
+            0xFF04 => self.div,
+            0xFF05 => self.tima,
+            0xFF06 => self.tma,
+            0xFF07 => self.tac,
+            _ => panic!("Timer has a restrictive addr space"),
+        }
+    }
+
     /// Helper to map TAC bits 0-1 to internal counter bits
     pub fn get_bit_index(&self, selection: u8) -> u16 {
         match selection {

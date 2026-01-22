@@ -1,24 +1,16 @@
-pub mod immediate;
-pub mod instruction_set;
+mod immediate;
+mod instruction_set;
+mod operand;
+mod register;
+mod snapshot;
+mod step_flow_controller_enum;
 
-pub mod operand;
-pub mod register;
-pub mod snapshot;
-
-// use log::info;
-
-use log::info;
-
-use crate::cpu::snapshot::CpuSnapshot;
-use crate::instruction::*;
-use crate::mmu::memory_trait::Memory;
+use crate::mmu::Memory;
 use crate::*;
+use log::info;
+pub use snapshot::CpuSnapshot;
 use std::fmt;
-
-enum StepFlowController {
-    Continue,
-    EarlyReturn(u8), // cycles consumed
-}
+use step_flow_controller_enum::StepFlowController;
 
 #[derive(Debug)]
 pub struct Cpu {
@@ -230,12 +222,12 @@ impl Cpu {
     /// Read the current opcode without mutating the current state.
     /// Returns the OpcodeInfo, and the number of bytes to move the pc forward)
     pub fn get_current_opcode(&self, bus: &impl Memory) -> (OpcodeInfo, u8) {
-        let opcode = bus.read(self.pc);
+        let opcode = bus.read_byte(self.pc);
 
         if opcode == CB_PREFIX_OPCODE_BYTE {
             // If the halt bug is active, the PC didn't move,
             // but for logging, we still need to know the CB instruction.
-            let cb_opcode = bus.read(self.pc.wrapping_add(1));
+            let cb_opcode = bus.read_byte(self.pc.wrapping_add(1));
             let info = CB_OPCODES[cb_opcode as usize].expect("Invalid CB opcode");
             (info, 2) // It's a 2-byte instruction
         } else {
@@ -244,14 +236,15 @@ impl Cpu {
         }
     }
 
-    pub fn step(&mut self, bus: &mut impl Memory) {
+    /// Return number of cycles.
+    pub fn step(&mut self, bus: &mut impl Memory) -> u8 {
         let mut total_cycles: u8 = 0;
 
         // 1. Handle Halt Logic
         if let StepFlowController::EarlyReturn(n) = self.handle_halt_logic(bus) {
             // info!("step: halt early exit");
-            bus.tick_components(n as u8);
-            return;
+            // bus.tick_components(n as u8);
+            return n;
         }
 
         // 2. Handle Interrupt Hijack
@@ -275,9 +268,7 @@ impl Cpu {
         // We add these cycles to our hijack cycles
         total_cycles += self.fetch_and_execute(bus);
 
-        // 5. Final Tick
-        // info!("step: {total_cycles} cycles");
-        bus.tick_components(total_cycles);
+        total_cycles
     }
 
     fn handle_interrupts(&mut self, bus: &mut impl Memory) -> StepFlowController {
@@ -321,7 +312,7 @@ impl Cpu {
         if let Some(code) = op {
             // info!("if: {}, ie: {}", bus.read_if(), bus.read_ie());
             // info!("{}", self);
-            info!("Dispatching: {}, bytes: {}", code, code.bytes);
+            // info!("Dispatching: {}, bytes: {}", code, code.bytes);
             let result = self.dispatch(code, bus);
             self.apply_flags(&code.flags, result);
             return result.cycles;
@@ -342,7 +333,7 @@ impl Cpu {
         StepFlowController::Continue
     }
     fn fetch_byte(&mut self, bus: &mut impl Memory) -> u8 {
-        let byte = bus.read(self.pc);
+        let byte = bus.read_byte(self.pc);
         if self.halt_bug_triggered {
             info!("Halt bug triggered");
             self.halt_bug_triggered = false;
@@ -399,7 +390,7 @@ impl Cpu {
             Target::Register16(reg) => OperandValue::U16(self.get_reg16(reg)),
 
             Target::Immediate8 => {
-                let val = bus.read(self.pc);
+                let val = bus.read_byte(self.pc);
                 self.pc = self.pc.wrapping_add(1);
                 OperandValue::U8(val)
             }
@@ -413,40 +404,40 @@ impl Cpu {
             // Memory access: (HL), (BC), (DE)
             Target::AddrRegister16(reg) => {
                 let addr = self.get_reg16(reg);
-                OperandValue::U8(bus.read(addr))
+                OperandValue::U8(bus.read_byte(addr))
             }
             Target::AddrRegister8(_) => todo!(),
 
             // LDH (a8) - High RAM access (0xFF00 + immediate byte)
             Target::AddrImmediate8 => {
-                let offset = bus.read(self.pc) as u16;
+                let offset = bus.read_byte(self.pc) as u16;
                 self.pc = self.pc.wrapping_add(1);
-                OperandValue::U8(bus.read(0xFF00 | offset))
+                OperandValue::U8(bus.read_byte(0xFF00 | offset))
             }
 
             // (nn) - 16-bit address read
             Target::AddrImmediate16 => {
                 let addr = bus.read_u16(self.pc);
                 self.pc = self.pc.wrapping_add(2);
-                OperandValue::U8(bus.read(addr))
+                OperandValue::U8(bus.read_byte(addr))
             }
             // 1. Indirect Read with Side Effects (e.g., LD A, (HL+))
             Target::AddrRegister16Increment(reg) => {
                 let addr = self.get_reg16(reg);
-                let val = bus.read(addr);
+                let val = bus.read_byte(addr);
                 self.set_reg16(reg, addr.wrapping_add(1)); // Increment side effect
                 OperandValue::U8(val)
             }
             Target::AddrRegister16Decrement(reg) => {
                 let addr = self.get_reg16(reg);
-                let val = bus.read(addr);
+                let val = bus.read_byte(addr);
                 self.set_reg16(reg, addr.wrapping_sub(1)); // Decrement side effect
                 OperandValue::U8(val)
             }
 
             // 2. Relative Offset (JR instructions)
             Target::Relative8 => {
-                let val = bus.read(self.pc) as i8; // Cast to signed immediately
+                let val = bus.read_byte(self.pc) as i8; // Cast to signed immediately
                 self.pc = self.pc.wrapping_add(1);
                 OperandValue::I8(val) // You need an I8 variant in OperandValue
             }
@@ -502,8 +493,8 @@ impl Cpu {
 
             (Target::AddrImmediate16, value) => {
                 // Read the 16-bit address (LSB first)
-                let low = mmu.read(self.pc) as u16;
-                let high = mmu.read(self.pc.wrapping_add(1)) as u16;
+                let low = mmu.read_byte(self.pc) as u16;
+                let high = mmu.read_byte(self.pc.wrapping_add(1)) as u16;
                 let addr = (high << 8) | low;
                 self.pc = self.pc.wrapping_add(2);
 
@@ -520,7 +511,7 @@ impl Cpu {
 
             (Target::AddrImmediate8, v) => {
                 // 1. Read the 8-bit offset following the opcode
-                let offset = mmu.read(self.pc);
+                let offset = mmu.read_byte(self.pc);
                 self.pc = self.pc.wrapping_add(1);
 
                 // 2. Construct the High RAM address
@@ -599,10 +590,10 @@ impl Cpu {
     /// Reads a 16-bit value from the current Stack Pointer and increments SP by 2.
     /// Little-Endian: The byte at SP is the low byte, SP+1 is the high byte.
     pub fn pop_u16(&mut self, bus: &impl Memory) -> u16 {
-        let low = bus.read(self.sp) as u16;
+        let low = bus.read_byte(self.sp) as u16;
         self.sp = self.sp.wrapping_add(1);
 
-        let high = bus.read(self.sp) as u16;
+        let high = bus.read_byte(self.sp) as u16;
         self.sp = self.sp.wrapping_add(1);
 
         (high << 8) | low
@@ -620,14 +611,6 @@ impl Cpu {
         self.sp = self.sp.wrapping_sub(1);
         bus.write(self.sp, low);
     }
-
-    // Helper for the A-versions
-    // fn set_flags_rotate(&mut self, res: u8, carry: bool, is_a_version: bool) {
-    //     self.set_flag(FLAG_Z, if is_a_version { false } else { res == 0 });
-    //     self.set_flag(FLAG_N, false);
-    //     self.set_flag(FLAG_H, false);
-    //     self.set_flag(FLAG_C, carry);
-    // }
 
     fn get_reg16_from_target(&self, target: Target) -> u16 {
         match target {
@@ -664,10 +647,10 @@ impl Cpu {
             // is usually fine, but ensure your bus.read() for the snapshot doesn't
             // accidentally "consume" or "trigger" hardware events (clearing a serial flag).
             pcmem: [
-                bus.read(self.pc),
-                bus.read(self.pc.wrapping_add(1)),
-                bus.read(self.pc.wrapping_add(2)),
-                bus.read(self.pc.wrapping_add(3)),
+                bus.read_byte(self.pc),
+                bus.read_byte(self.pc.wrapping_add(1)),
+                bus.read_byte(self.pc.wrapping_add(2)),
+                bus.read_byte(self.pc.wrapping_add(3)),
             ],
         }
     }
@@ -801,7 +784,7 @@ mod test {
             cpu.ime,
             "IME should enable AFTER the instruction following EI"
         );
-        assert_eq!(bus.read(0xFF0F), 0x01, "IF should now be set");
+        assert_eq!(bus.read_byte(0xFF0F), 0x01, "IF should now be set");
 
         // --- STEP 3: THE INTERRUPT HIJACK ---
         // The CPU is at 0x103. IME is true. IF is 0x01.
@@ -814,8 +797,8 @@ mod test {
         assert_eq!(cpu.sp, 0xDFFB, "SP should have decreased by 2");
 
         // Verify what was pushed to the stack
-        let low = bus.read(cpu.sp);
-        let high = bus.read(cpu.sp + 1);
+        let low = bus.read_byte(cpu.sp);
+        let high = bus.read_byte(cpu.sp + 1);
         let return_addr = ((high as u16) << 8) | (low as u16);
         assert_eq!(
             return_addr, 0x103,
@@ -989,12 +972,16 @@ mod test {
         }
 
         // 3. Verify
-        let if_reg = bus.read(0xFF0F);
+        let if_reg = bus.read_byte(0xFF0F);
         assert!(
             if_reg & 0x04 != 0,
             "Timer interrupt bit (2) should be set in IF"
         );
-        assert_eq!(bus.read(0xFF05), 0xAA, "TIMA should have reloaded from TMA");
+        assert_eq!(
+            bus.read_byte(0xFF05),
+            0xAA,
+            "TIMA should have reloaded from TMA"
+        );
     }
     #[test]
     fn test_log_alignment_interrupt_hijack() {
@@ -1027,7 +1014,7 @@ mod test {
         // After this, PC should be C2C0, and IF bit 2 should be set.
         assert_eq!(cpu.pc, 0xC2C0);
         assert_eq!(
-            bus.read(0xFF0F) & 0x04,
+            bus.read_byte(0xFF0F) & 0x04,
             0x04,
             "Timer interrupt should be pending"
         );
@@ -1048,8 +1035,8 @@ mod test {
             "SP should be DFFB (PC C2C0 pushed to stack)"
         );
 
-        let stack_low = bus.read(0xDFFB);
-        let stack_high = bus.read(0xDFFC);
+        let stack_low = bus.read_byte(0xDFFB);
+        let stack_high = bus.read_byte(0xDFFC);
         assert_eq!(stack_low, 0xC0);
         assert_eq!(stack_high, 0xC2);
     }
@@ -1076,7 +1063,7 @@ mod test {
         // 2. Check side effects
         assert_eq!(cpu.pc, 0x0050, "PC should be at Timer Vector");
         assert_eq!(cpu.ime, false, "IME should be disabled after service");
-        assert_eq!(bus.read(0xFF0F) & 0x04, 0, "IF bit should be cleared");
+        assert_eq!(bus.read_byte(0xFF0F) & 0x04, 0, "IF bit should be cleared");
     }
     #[test]
     fn test_halt_bug_pc_behavior() {
