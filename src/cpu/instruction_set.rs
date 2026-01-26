@@ -143,7 +143,7 @@ impl InstructionSet for Cpu {
                 let addr = self.get_reg16(reg);
                 let val = bus.read_byte(addr);
                 let (res, z, n, h) = self.calculate_dec_8bit(val);
-                bus.write(addr, res);
+                bus.write_byte(addr, res);
                 return instruction.result_with_flags(z, n, h, false);
             }
 
@@ -265,10 +265,10 @@ impl InstructionSet for Cpu {
 
         // Stack grows downwards: Push High then Low
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, ((val >> 8) & 0xFF) as u8);
+        bus.write_byte(self.sp, ((val >> 8) & 0xFF) as u8);
 
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, (val & 0xFF) as u8);
+        bus.write_byte(self.sp, (val & 0xFF) as u8);
 
         instruction.result()
     }
@@ -414,7 +414,7 @@ impl InstructionSet for Cpu {
                 let res = val.wrapping_add(1);
 
                 // 4. Write the new value back to that same memory address
-                bus.write(addr, res);
+                bus.write_byte(addr, res);
 
                 // 5. Update flags (Z, N=0, H, C is unaffected)
                 return instruction.result_with_flags(
@@ -569,7 +569,7 @@ impl InstructionSet for Cpu {
             (Target::AddrImmediate8, Target::Register8(Reg8::A)) => {
                 let offset = bus.read_byte(self.pc);
                 self.pc = self.pc.wrapping_add(1);
-                bus.write(0xFF00 + offset as u16, self.get_reg8(Reg8::A));
+                bus.write_byte(0xFF00 + offset as u16, self.get_reg8(Reg8::A));
             }
             // LDH A, (n8) -> Load 0xFF00 + n8 into A
             (Target::Register8(Reg8::A), Target::AddrImmediate8) => {
@@ -587,7 +587,7 @@ impl InstructionSet for Cpu {
 
             (Target::AddrRegister8(from), Target::Register8(to)) => {
                 let offset = self.get_reg8(from);
-                bus.write(0xFF00 + offset as u16, self.get_reg8(to));
+                bus.write_byte(0xFF00 + offset as u16, self.get_reg8(to));
             }
             _ => todo!("LDH variant not handled"),
         }
@@ -707,9 +707,9 @@ impl InstructionSet for Cpu {
         // 1. Push current PC to stack
         let pc = self.pc;
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, (pc >> 8) as u8);
+        bus.write_byte(self.sp, (pc >> 8) as u8);
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, (pc & 0xFF) as u8);
+        bus.write_byte(self.sp, (pc & 0xFF) as u8);
 
         // 2. The target address is usually part of the mnemonic (e.g., RST 00h)
         // or passed as an immediate by your decoder.
@@ -737,10 +737,11 @@ impl InstructionSet for Cpu {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::input::DummyInput;
     #[test]
     fn test_halt_bug_flag_activation() {
         let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let mut bus: Bus<DummyInput> = Bus::new(vec![0; 0x10000]);
 
         // 1. Define the HALT instruction metadata (adjust to your OpcodeInfo structure)
         let halt_info = OPCODES[0x76].unwrap();
@@ -751,8 +752,8 @@ mod test {
 
         // 3. Condition: Interrupt is PENDING
         // Ensure both IE and IF have a matching bit set (e.g., V-Blank bit 0)
-        bus.write(0xFFFF, 0x01); // IE
-        bus.write(0xFF0F, 0x01); // IF
+        bus.write_byte(0xFFFF, 0x01); // IE
+        bus.write_byte(0xFF0F, 0x01); // IF
 
         // 4. Call the halt function directly
         cpu.halt(halt_info, &mut bus);

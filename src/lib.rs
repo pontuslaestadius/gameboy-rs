@@ -2,6 +2,7 @@ pub mod args;
 pub mod cartridge;
 pub mod constants;
 pub mod cpu;
+pub mod input;
 pub mod mmu;
 pub mod opcodes;
 pub mod ppu;
@@ -11,6 +12,7 @@ pub mod utils;
 
 // use crate::cartridge::Headers;
 use crate::cpu::Cpu;
+use crate::input::RotaryInput;
 use crate::ppu::terminal::display_frame;
 use crate::testing::doctor_session::{DoctorSession, doctor_main_loop};
 
@@ -18,7 +20,6 @@ use constants::*;
 use env_logger;
 use mmu::{Bus, Memory};
 use opcodes::*;
-use std::any::Any;
 use std::io;
 
 use std::path::PathBuf;
@@ -71,7 +72,7 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
 fn main_loop(buffer: Vec<u8>) {
     let mut cpu = Cpu::new();
     // let headers = Headers::new(&buffer);
-    let mut bus = Bus::new(buffer);
+    let mut bus: Bus<RotaryInput> = Bus::new(buffer);
     let mut last_frame_time = Instant::now();
     loop {
         let mut vblank_triggered = false;

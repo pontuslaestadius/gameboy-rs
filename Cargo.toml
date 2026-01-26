@@ -7,7 +7,7 @@ authors = ["Pontus Laestadius <pontus.laestadius@gmail.com>"]
 [dependencies]
 clap = { version = "4.5.54", features = ["derive"] }
 env_logger = "0.11.8"
-log = "0.4.29"
+log = { version = "0.4.29", features = ["release_max_level_info"] }
 
 [build-dependencies]
 serde = { version = "1.0.228", features = ["derive"] }

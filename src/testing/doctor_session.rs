@@ -7,6 +7,7 @@ use log::info;
 use crate::args::Args;
 use crate::cartridge::Headers;
 use crate::cpu::{Cpu, CpuSnapshot};
+use crate::input::DummyInput;
 use crate::mmu::Memory;
 use crate::utils::output_string_diff;
 use crate::*;
@@ -16,7 +17,7 @@ use crate::*;
 pub struct DoctorSession {
     pub golden_log: BufReader<File>,
     pub current_line: usize,
-    pub memory: Bus,
+    pub memory: Bus<DummyInput>,
     pub cpu: Cpu,
     pub headers: Headers,
     pub history: RingBufferDoctor,
@@ -87,7 +88,7 @@ pub struct RingBufferDoctorState {
 impl DoctorSession {
     pub fn on_empty_golden_log(&mut self) {
         // Force write to memory to flush the serial port.
-        self.memory.write(0xFF02, 0x81);
+        self.memory.write_byte(0xFF02, 0x81);
         // Print a new line to avoid overwriting the test results.
         println!("");
         println!("PASSED! All {} lines matched.", self.current_line);

@@ -7,7 +7,7 @@ mod step_flow_controller_enum;
 
 use crate::mmu::Memory;
 use crate::*;
-use log::info;
+use log::{debug, info};
 pub use snapshot::CpuSnapshot;
 use std::fmt;
 use step_flow_controller_enum::StepFlowController;
@@ -50,6 +50,7 @@ struct AluResult {
 
 impl Cpu {
     pub fn new() -> Self {
+        debug!("Creating CPU");
         Self {
             // These values are standard for the GB after the boot ROM runs
             a: 0x01,
@@ -100,15 +101,16 @@ impl Cpu {
         let pc_low = (self.pc & 0xFF) as u8;
 
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, pc_high);
+        bus.write_byte(self.sp, pc_high);
         // info!("service_interrupt: addr: {} = {}", self.sp, pc_high);
 
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, pc_low);
+        bus.write_byte(self.sp, pc_low);
         // info!("service_interrupt: addr: {} = {}", self.sp, pc_low);
 
         // 4. Jump to the vector address
         // Priority: V-Blank (0x40), LCD (0x48), Timer (0x50), Serial (0x58), Joypad (0x60)
+
         self.pc = match bit {
             0 => ADDR_VBLANK,
             1 => ADDR_LCD_STAT,
@@ -471,12 +473,12 @@ impl Cpu {
             // a16 is a common write target (e.g., LD (a16), SP)
             (Target::AddrRegister16(reg), OperandValue::U8(v)) => {
                 let addr = self.get_reg16(reg);
-                mmu.write(addr, v);
+                mmu.write_byte(addr, v);
             }
 
             (Target::AddrRegister16Decrement(reg), OperandValue::U8(v)) => {
                 let addr = self.get_reg16(reg);
-                mmu.write(addr, v);
+                mmu.write_byte(addr, v);
 
                 // The side effect: decrement the pointer
                 let new_val = addr.wrapping_sub(1);
@@ -484,7 +486,7 @@ impl Cpu {
             }
             (Target::AddrRegister16Increment(reg), OperandValue::U8(v)) => {
                 let addr = self.get_reg16(reg);
-                mmu.write(addr, v);
+                mmu.write_byte(addr, v);
 
                 // The side effect: increment the pointer
                 let new_val = addr.wrapping_add(1);
@@ -499,11 +501,11 @@ impl Cpu {
                 self.pc = self.pc.wrapping_add(2);
 
                 match value {
-                    OperandValue::U8(v) => mmu.write(addr, v),
+                    OperandValue::U8(v) => mmu.write_byte(addr, v),
                     OperandValue::U16(v) => {
                         // e.g., LD (a16), SP writes 16 bits
-                        mmu.write(addr, (v & 0xFF) as u8);
-                        mmu.write(addr.wrapping_add(1), (v >> 8) as u8);
+                        mmu.write_byte(addr, (v & 0xFF) as u8);
+                        mmu.write_byte(addr.wrapping_add(1), (v >> 8) as u8);
                     }
                     _ => todo!(),
                 }
@@ -518,7 +520,7 @@ impl Cpu {
                 let addr = 0xFF00 | (offset as u16);
 
                 // 3. Write the 8-bit value to that address
-                mmu.write(addr, v.as_u8());
+                mmu.write_byte(addr, v.as_u8());
             }
             _ => panic!(
                 "write_target: Invalid write target or value mismatch, {:?}, {:?}",
@@ -606,10 +608,10 @@ impl Cpu {
         let low = (val & 0xFF) as u8;
 
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, high);
+        bus.write_byte(self.sp, high);
 
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp, low);
+        bus.write_byte(self.sp, low);
     }
 
     fn get_reg16_from_target(&self, target: Target) -> u16 {
@@ -691,15 +693,23 @@ impl fmt::Display for Cpu {
 mod test {
 
     use super::*;
+    use crate::input::DummyInput;
+
+    fn bootstrap() -> (Cpu, Bus<DummyInput>) {
+        // RUST_LOG=trace cargo test cpu::test::test_ei_delay_timing -- --nocapture
+        // let _ = env_logger::builder().is_test(true).try_init();
+        let bus: Bus<DummyInput> = Bus::new(Vec::new()); // Your memory/system component
+        let cpu = Cpu::new();
+        (cpu, bus)
+    }
 
     #[test]
     fn test_ei_delay_timing() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new()); // Assuming you have a mock or simple bus
+        let (mut cpu, mut bus) = bootstrap();
 
         // 1. Execute EI (Opcode 0xFB)
         cpu.pc = 0x100;
-        bus.write(0x100, 0xFB); // EI
+        bus.force_write_byte(0x100, 0xFB); // EI
         cpu.step(&mut bus);
 
         // After EI, IME should still be false, but scheduled
@@ -710,7 +720,7 @@ mod test {
         );
 
         // 2. Execute a NOP (Opcode 0x00)
-        bus.write(0x101, 0x00);
+        bus.write_byte(0x101, 0x00);
         cpu.step(&mut bus);
 
         // After the instruction FOLLOWING EI, IME becomes true
@@ -723,12 +733,11 @@ mod test {
 
     #[test]
     fn test_ei_timing_strict() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new());
+        let (mut cpu, mut bus) = bootstrap();
 
         // 1. Execute EI
         cpu.pc = 0x100;
-        bus.write(0x100, 0xFB); // EI
+        bus.force_write_byte(0x100, 0xFB); // EI
         cpu.step(&mut bus);
 
         // After EI finishes, the 'delay' should be primed
@@ -740,7 +749,7 @@ mod test {
         assert!(!cpu.ime, "IME should still be false");
 
         // 2. Execute any other instruction (e.g., NOP)
-        bus.write(0x101, 0x00);
+        bus.write_byte(0x101, 0x00);
         cpu.step(&mut bus);
 
         // Now IME must be true
@@ -752,8 +761,7 @@ mod test {
 
     #[test]
     fn test_interrupt_trigger_timing_sequence() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new());
+        let (mut cpu, mut bus) = bootstrap();
 
         // 1. Initialize to a known clean state
         cpu.pc = 0x100;
@@ -763,10 +771,10 @@ mod test {
         cpu.a = 0x01; // Value to be written to IF
 
         // Setup: Enable V-Blank in IE (0xFFFF)
-        bus.write(0xFFFF, 0x01);
+        bus.write_byte(0xFFFF, 0x01);
 
         // --- STEP 1: EI (FB) ---
-        bus.write(0x100, 0xFB);
+        bus.write_byte(0x100, 0xFB);
         cpu.step(&mut bus);
 
         assert_eq!(cpu.pc, 0x101, "PC should move to next instr");
@@ -775,8 +783,8 @@ mod test {
 
         // --- STEP 2: LDH (0xFF0F), A (E0 0F) ---
         // This instruction enables the interrupt flag.
-        bus.write(0x101, 0xE0);
-        bus.write(0x102, 0x0F);
+        bus.write_byte(0x101, 0xE0);
+        bus.write_byte(0x102, 0x0F);
         cpu.step(&mut bus);
 
         assert_eq!(cpu.pc, 0x103, "PC should move past LDH");
@@ -789,7 +797,7 @@ mod test {
         // --- STEP 3: THE INTERRUPT HIJACK ---
         // The CPU is at 0x103. IME is true. IF is 0x01.
         // In a real Game Boy, the interrupt is serviced BEFORE 0x103 executes.
-        bus.write(0x103, 0x00); // NOP (should be 'skipped' or 'delayed')
+        bus.write_byte(0x103, 0x00); // NOP (should be 'skipped' or 'delayed')
         cpu.step(&mut bus);
 
         // Assertions for a successful Hijack
@@ -808,15 +816,14 @@ mod test {
 
     #[test]
     fn test_halt_bug_trigger() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new());
+        let (mut cpu, mut bus) = bootstrap();
 
         cpu.ime = false;
-        bus.write(0xFFFF, 0x01); // IE: Enable V-Blank
-        bus.write(0xFF0F, 0x01); // IF: Request V-Blank (Already pending!)
+        bus.write_byte(0xFFFF, 0x01); // IE: Enable V-Blank
+        bus.write_byte(0xFF0F, 0x01); // IF: Request V-Blank (Already pending!)
 
         // Execute HALT (Opcode 0x76)
-        bus.write(0x100, 0x76);
+        bus.write_byte(0x100, 0x76);
         cpu.step(&mut bus);
 
         assert!(
@@ -830,8 +837,7 @@ mod test {
     }
     #[test]
     fn test_halt_bug_execution_cycle() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new());
+        let (mut cpu, mut bus) = bootstrap();
 
         // 1. Setup Halt Bug conditions: IME off, but Interrupt Pending
         cpu.pc = 0x4000;
@@ -840,8 +846,8 @@ mod test {
 
         // 2. Place an 'INC A' (0x3C) at 0x4000
         // And place a 'DEC A' (0x3D) at 0x4001
-        bus.write(0x4000, 0x3C);
-        bus.write(0x4001, 0x3D);
+        bus.write_byte(0x4000, 0x3C);
+        bus.write_byte(0x4001, 0x3D);
 
         cpu.a = 5;
 
@@ -867,17 +873,16 @@ mod test {
     }
     #[test]
     fn test_ei_invincibility_window() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new());
+        let (mut cpu, mut bus) = bootstrap();
 
         // 1. Setup: Interrupt is already pending, but IME is off
         cpu.pc = 0x100;
         cpu.ime = false;
-        bus.write(0xFFFF, 0x01); // IE: V-Blank enabled
-        bus.write(0xFF0F, 0x01); // IF: V-Blank pending
+        bus.force_write_byte(0xFFFF, 0x01); // IE: V-Blank enabled
+        bus.force_write_byte(0xFF0F, 0x01); // IF: V-Blank pending
 
         // 2. Execute EI
-        bus.write(0x100, 0xFB); // EI
+        bus.force_write_byte(0x100, 0xFB); // EI
         cpu.step(&mut bus);
 
         // PC should be 0x101. Interrupt should NOT have fired yet.
@@ -888,7 +893,7 @@ mod test {
         assert_eq!(cpu.ime_scheduled, 1);
 
         // 3. Execute NOP at 0x101
-        bus.write(0x101, 0x00);
+        bus.write_byte(0x101, 0x00);
         cpu.step(&mut bus);
 
         // PC should be 0x102. IME is now true.
@@ -906,16 +911,15 @@ mod test {
     }
     #[test]
     fn test_interrupt_masking() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new());
+        let (mut cpu, mut bus) = bootstrap();
 
         cpu.ime = true;
-        bus.write(0xFFFF, 0x01); // IE: Only V-Blank (bit 0)
-        bus.write(0xFF0F, 0x02); // IF: LCD Stat (bit 1) requested
+        bus.force_write_byte(0xFFFF, 0x01); // IE: Only V-Blank (bit 0)
+        bus.force_write_byte(0xFF0F, 0x02); // IF: LCD Stat (bit 1) requested
 
         // Step the CPU
         cpu.pc = 0x200;
-        bus.write(0x200, 0x00); // NOP
+        bus.force_write_byte(0x200, 0x00); // NOP
         cpu.step(&mut bus);
 
         assert_eq!(
@@ -925,8 +929,7 @@ mod test {
     }
     #[test]
     fn test_halt_bug_multi_byte_shift() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new());
+        let (mut cpu, mut bus) = bootstrap();
 
         cpu.pc = 0x4000;
         cpu.ime = false;
@@ -934,8 +937,8 @@ mod test {
 
         // 0x3E is 'LD A, n8'.
         // It normally reads 0x3E, then reads the next byte as data.
-        bus.write(0x4000, 0x3E);
-        bus.write(0x4001, 0xFF); // This was supposed to be the data
+        bus.force_write_byte(0x4000, 0x3E);
+        bus.force_write_byte(0x4001, 0xFF); // This was supposed to be the data
 
         cpu.a = 0;
 
@@ -956,14 +959,13 @@ mod test {
     }
     #[test]
     fn test_timer_interrupt_trigger() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(Vec::new());
+        let (mut cpu, mut bus) = bootstrap();
 
         // 1. Enable Timer at fastest speed (4MHz / 16)
         // TAC: Bit 2 (Enable) = 1, Bits 0-1 (Speed 01) = 1 -> 0b101 (0x05)
-        bus.write(0xFF07, 0x05);
-        bus.write(0xFF05, 0xFE); // Set TIMA near overflow
-        bus.write(0xFF06, 0xAA); // Set TMA reload value
+        bus.force_write_byte(0xFF07, 0x05);
+        bus.force_write_byte(0xFF05, 0xFE); // Set TIMA near overflow
+        bus.force_write_byte(0xFF06, 0xAA); // Set TMA reload value
 
         // 2. Step the CPU (or just the timer) for enough cycles to overflow
         // Fastest speed is 16 cycles. If your step() increments cycles:
@@ -985,8 +987,7 @@ mod test {
     }
     #[test]
     fn test_log_alignment_interrupt_hijack() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
 
         // 1. Initial State from Log 151345
         cpu.pc = 0xC2BE;
@@ -996,18 +997,18 @@ mod test {
         cpu.ime = true;
 
         // Enable Timer Interrupt in IE
-        bus.write(0xFFFF, 0x04);
+        bus.force_write_byte(0xFFFF, 0x04);
 
         // 2. Setup Memory
         // C2BE: LDH (0xFF0F), A  -> This triggers the interrupt
-        bus.write(0xC2BE, 0xE0);
-        bus.write(0xC2BF, 0x0F);
+        bus.force_write_byte(0xC2BE, 0xE0);
+        bus.force_write_byte(0xC2BF, 0x0F);
 
         // C2C0: DEC B -> This should be "skipped" (pushed to stack)
-        bus.write(0xC2C0, 0x05);
+        bus.force_write_byte(0xC2C0, 0x05);
 
         // 0050: INC A -> First instruction of ISR
-        bus.write(0x0050, 0x3C);
+        bus.force_write_byte(0x0050, 0x3C);
 
         // --- STEP 1: Execute LDH ---
         cpu.step(&mut bus);
@@ -1042,14 +1043,13 @@ mod test {
     }
     #[test]
     fn test_handle_interrupts_return_state() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0xFFFF]);
+        let (mut cpu, mut bus) = bootstrap();
 
         // Setup state before interrupt
         cpu.pc = 0xC2C0;
         cpu.ime = true;
-        bus.write(0xFFFF, 0x04); // IE: Timer
-        bus.write(0xFF0F, 0x04); // IF: Timer
+        bus.force_write_byte(0xFFFF, 0x04); // IE: Timer
+        bus.force_write_byte(0xFF0F, 0x04); // IF: Timer
 
         // Call the function
         let result = cpu.handle_interrupts(&mut bus);
@@ -1067,19 +1067,18 @@ mod test {
     }
     #[test]
     fn test_halt_bug_pc_behavior() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
 
         cpu.pc = 0xC000;
         cpu.ime = false; // IME must be OFF for the bug
 
         // 1. Setup HALT followed by a NOP
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x3C); // INC A (The instruction that will be affected)
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x3C); // INC A (The instruction that will be affected)
 
         // 2. Make an interrupt pending
-        bus.write(0xFFFF, 0x01); // IE: V-Blank
-        bus.write(0xFF0F, 0x01); // IF: V-Blank
+        bus.force_write_byte(0xFFFF, 0x01); // IE: V-Blank
+        bus.force_write_byte(0xFF0F, 0x01); // IF: V-Blank
 
         // 3. Step once (Executes HALT)
         cpu.step(&mut bus);
@@ -1106,18 +1105,17 @@ mod test {
     }
     #[test]
     fn test_halt_bug_lifecycle() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
 
         cpu.pc = 0xC000;
         cpu.ime = false;
 
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x3C); // INC A
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x3C); // INC A
 
         // Trigger condition for HALT Bug: IME=0 and (IE & IF) != 0
-        bus.write(0xFFFF, 0x01);
-        bus.write(0xFF0F, 0x01);
+        bus.force_write_byte(0xFFFF, 0x01);
+        bus.force_write_byte(0xFF0F, 0x01);
 
         // Step 1: Execute HALT
         cpu.step(&mut bus);
@@ -1143,15 +1141,14 @@ mod test {
 
     #[test]
     fn test_halt_no_bug_if_ime_on() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
         cpu.pc = 0xC000;
         cpu.ime = true; // IME is ON
 
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x3C); // INC A
-        bus.write(0xFFFF, 0x01); // IE
-        bus.write(0xFF0F, 0x01); // IF (Interrupt is pending!)
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x3C); // INC A
+        bus.force_write_byte(0xFFFF, 0x01); // IE
+        bus.force_write_byte(0xFF0F, 0x01); // IF (Interrupt is pending!)
 
         cpu.step(&mut bus);
 
@@ -1162,23 +1159,22 @@ mod test {
     }
     #[test]
     fn test_halt_wakeup_and_stay_awake() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
 
         cpu.pc = 0xC000;
         cpu.ime = false;
 
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x00); // NOP
-        bus.write(0xC002, 0x00); // NOP
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x00); // NOP
+        bus.force_write_byte(0xC002, 0x00); // NOP
 
         // 1. Execute HALT
         cpu.step(&mut bus);
         assert!(cpu.halted, "Should be halted now");
 
         // 2. Trigger interrupt to wake it up
-        bus.write(0xFFFF, 0x01);
-        bus.write(0xFF0F, 0x01);
+        bus.force_write_byte(0xFFFF, 0x01);
+        bus.force_write_byte(0xFF0F, 0x01);
 
         // 3. This step should wake up and execute the NOP at C001
         cpu.step(&mut bus);
@@ -1192,12 +1188,11 @@ mod test {
     }
     #[test]
     fn test_halt_prohibit_immediate_rehalt() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
 
         cpu.pc = 0xC000;
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x00); // NOP
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x00); // NOP
 
         // 1. Execute HALT
         cpu.step(&mut bus);
@@ -1206,8 +1201,8 @@ mod test {
         assert_eq!(cpu.pc, 0xC001);
 
         // 2. Wake up
-        bus.write(0xFFFF, 0x01);
-        bus.write(0xFF0F, 0x01);
+        bus.write_byte(0xFFFF, 0x01);
+        bus.write_byte(0xFF0F, 0x01);
 
         cpu.step(&mut bus); // Should execute NOP
         assert!(!cpu.halted, "CPU should be awake");
@@ -1219,15 +1214,14 @@ mod test {
     }
     #[test]
     fn test_halt_bug_step_isolation() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
         cpu.pc = 0xC000;
         cpu.ime = false;
 
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x3C); // INC A
-        bus.write(0xFFFF, 0x01); // IE
-        bus.write(0xFF0F, 0x01); // IF
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x3C); // INC A
+        bus.force_write_byte(0xFFFF, 0x01); // IE
+        bus.force_write_byte(0xFF0F, 0x01); // IF
 
         // Execute exactly ONE step. This should ONLY execute HALT.
         cpu.step(&mut bus);
@@ -1247,15 +1241,14 @@ mod test {
     }
     #[test]
     fn test_halt_bug_step_by_step() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
 
         cpu.pc = 0xC000;
         cpu.ime = false;
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x3C); // INC A
-        bus.write(0xFFFF, 0x01); // IE
-        bus.write(0xFF0F, 0x01); // IF
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x3C); // INC A
+        bus.force_write_byte(0xFFFF, 0x01); // IE
+        bus.force_write_byte(0xFF0F, 0x01); // IF
 
         // --- MANUALLY SIMULATE STEP 1 (HALT) ---
 
@@ -1307,15 +1300,14 @@ mod test {
     }
     #[test]
     fn test_halt_pc_movement_only() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
         cpu.pc = 0xC36F;
-        bus.write(0xC36F, 0x76); // HALT
-        bus.write(0xC370, 0x00); // NOP
+        bus.force_write_byte(0xC36F, 0x76); // HALT
+        bus.force_write_byte(0xC370, 0x00); // NOP
 
         // We use the same conditions as your log (IME=0, IF=0)
         cpu.ime = false;
-        bus.write(0xFF0F, 0x00);
+        bus.force_write_byte(0xFF0F, 0x00);
 
         cpu.step(&mut bus);
 
@@ -1328,14 +1320,13 @@ mod test {
     }
     #[test]
     fn test_halt_bug_pc_locking() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
         cpu.pc = 0xC000;
         cpu.ime = false;
 
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xFFFF, 0x01); // IE
-        bus.write(0xFF0F, 0x01); // IF (Bug triggered!)
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xFFFF, 0x01); // IE
+        bus.force_write_byte(0xFF0F, 0x01); // IF (Bug triggered!)
 
         // 1. Fetch the 0x76
         let op = cpu.fetch_byte(&mut bus);
@@ -1357,15 +1348,14 @@ mod test {
     }
     #[test]
     fn test_manual_bug_execution() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
         cpu.pc = 0xC000;
         cpu.ime = false;
 
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x3C); // INC A
-        bus.write(0xFFFF, 0x01); // IE
-        bus.write(0xFF0F, 0x01); // IF
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x3C); // INC A
+        bus.force_write_byte(0xFFFF, 0x01); // IE
+        bus.force_write_byte(0xFF0F, 0x01); // IF
 
         // 1. Manually run the first instruction (HALT)
         cpu.fetch_and_execute(&mut bus);
@@ -1384,13 +1374,12 @@ mod test {
     }
     #[test]
     fn test_fetch_byte_bug_isolation() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
         cpu.pc = 0xC000;
 
         // Arm the bug manually
         cpu.halt_bug_triggered = true;
-        bus.write(0xC000, 0x3C); // INC A
+        bus.force_write_byte(0xC000, 0x3C); // INC A
 
         // First fetch: should NOT increment PC
         let op1 = cpu.fetch_byte(&mut bus);
@@ -1405,15 +1394,14 @@ mod test {
     }
     #[test]
     fn test_pc_and_flag_alignment() {
-        let mut cpu = Cpu::new();
-        let mut bus = Bus::new(vec![0; 0x10000]);
+        let (mut cpu, mut bus) = bootstrap();
         cpu.pc = 0xC000;
         cpu.ime = false;
 
-        bus.write(0xC000, 0x76); // HALT
-        bus.write(0xC001, 0x3C); // INC A
-        bus.write(0xFFFF, 0x01); // IE
-        bus.write(0xFF0F, 0x01); // IF
+        bus.force_write_byte(0xC000, 0x76); // HALT
+        bus.force_write_byte(0xC001, 0x3C); // INC A
+        bus.force_write_byte(0xFFFF, 0x01); // IE
+        bus.force_write_byte(0xFF0F, 0x01); // IF
 
         // Step 1: Execute HALT
         cpu.fetch_and_execute(&mut bus);
