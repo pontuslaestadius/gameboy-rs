@@ -112,11 +112,11 @@ impl Cpu {
         // Priority: V-Blank (0x40), LCD (0x48), Timer (0x50), Serial (0x58), Joypad (0x60)
 
         self.pc = match bit {
-            0 => ADDR_VBLANK,
-            1 => ADDR_LCD_STAT,
-            2 => ADDR_TIMER,
-            3 => ADDR_SERIAL,
-            4 => ADDR_JOYPAD,
+            0 => ADDR_VEC_VBLANK,
+            1 => ADDR_VEC_LCD_STAT,
+            2 => ADDR_VEC_TIMER,
+            3 => ADDR_VEC_SERIAL,
+            4 => ADDR_VEC_JOYPAD,
             _ => panic!("Should not be possible."), // Should never happen
         };
     }

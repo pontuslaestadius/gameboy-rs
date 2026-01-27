@@ -37,7 +37,7 @@ pub struct Bus<I: InputDevice + Default> {
     timer: Timer,
     // Must use a Vec since an Array would use the stack, and crash the application.
     // Using the heap is required.
-    rom_size: usize,
+    // rom_size: usize,
     // This puts exactly 64KB on the HEAP, not the STACK
     pub data: Box<[u8; MEMORY_SIZE]>,
     // total_cycles: u64,
@@ -66,7 +66,7 @@ impl<I: InputDevice + Default> Bus<I> {
 
         Bus {
             timer: Timer::new(),
-            rom_size,
+            // rom_size,
             data: buffer,
             ppu: Box::new(DummyPpu::new()),
             joypad_sel: 0xFF,
