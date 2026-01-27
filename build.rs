@@ -212,7 +212,7 @@ fn main() {
             let key = format!("0x{:02X}", i);
             if let Some(op) = table.get(&key) {
                 if op.mnemonic == "PREFIX" || op.mnemonic.starts_with("ILLEGAL") {
-                    code.push_str(&format!("    None,\n",));
+                    code.push_str(&"    None,\n".to_string());
                     continue;
                 }
                 let mut flag_str = String::new();

@@ -360,7 +360,7 @@ impl InstructionSet for Cpu {
     fn ret(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         // 1. Check if this is a conditional return
         // (In many specs, conditional RETs have a Condition as the first operand)
-        let should_return = if let Some((Target::Condition(cond), _)) = instruction.operands.get(0)
+        let should_return = if let Some((Target::Condition(cond), _)) = instruction.operands.first()
         {
             self.check_condition(Target::Condition(*cond))
         } else {
@@ -481,14 +481,12 @@ impl InstructionSet for Cpu {
 
         if self.ime {
             self.halted = true;
+        } else if pending != 0 {
+            // THE HALT BUG: IME is 0 and an interrupt is already pending.
+            // The next instruction is "duplicated" or the PC fails to increment.
+            self.halt_bug_triggered = true;
         } else {
-            if pending != 0 {
-                // THE HALT BUG: IME is 0 and an interrupt is already pending.
-                // The next instruction is "duplicated" or the PC fails to increment.
-                self.halt_bug_triggered = true;
-            } else {
-                self.halted = true;
-            }
+            self.halted = true;
         }
         instruction.result()
     }
@@ -723,7 +721,7 @@ impl InstructionSet for Cpu {
         let (target, _) = instruction.operands[0];
         let val = self.read_target(target, bus).as_u8();
 
-        let res = (val >> 4) | (val << 4);
+        let res = val.rotate_left(4);
         self.write_target(target, OperandValue::U8(res), bus);
 
         // Pass all 4 flag proposals.

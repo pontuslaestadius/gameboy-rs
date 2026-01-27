@@ -41,6 +41,12 @@ pub struct DummyPpu {
     obp1: u8,
 }
 
+impl Default for DummyPpu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DummyPpu {
     pub fn new() -> Self {
         Self {
@@ -232,7 +238,9 @@ impl Ppu for DummyPpu {
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
-        let val = match addr {
+        
+        // info!("ppu: read_byte: addr: {:04X}, val: {:02X}", addr, val);
+        match addr {
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize],
             0xFE00..=0xFE9F => self.oam[(addr - 0xFE00) as usize],
             0xFF40 => self.lcdc,
@@ -247,9 +255,7 @@ impl Ppu for DummyPpu {
             0xFF4A => self.wy,
             0xFF4B => self.wx,
             _ => 0xFF, // Default for unmapped IO
-        };
-        // info!("ppu: read_byte: addr: {:04X}, val: {:02X}", addr, val);
-        val
+        }
     }
 
     fn write_byte(&mut self, addr: u16, val: u8) {

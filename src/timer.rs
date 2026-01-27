@@ -6,6 +6,12 @@ pub struct Timer {
     pub div: u8,               // 0xFF04 (Top 8 bits of internal_counter)
 }
 
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Timer {
     pub fn new() -> Self {
         Self {
@@ -96,11 +102,10 @@ impl Timer {
             let new_signal = timer_enabled && ((self.internal_counter >> bit_index) & 1) != 0;
 
             // Signal was High (1) and is now Low (0)
-            if old_signal && !new_signal {
-                if self.increment_tima() {
+            if old_signal && !new_signal
+                && self.increment_tima() {
                     interrupt_requested = true;
                 }
-            }
         }
         interrupt_requested
     }

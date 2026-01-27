@@ -15,7 +15,7 @@ pub struct OpcodeInfo {
 
 impl OpcodeInfo {
     pub fn result(&self) -> InstructionResult {
-        InstructionResult::from_instr(&self)
+        InstructionResult::from_instr(self)
     }
     /// For instructions that need to pass calculated flag proposals.
     pub fn result_with_flags(&self, z: bool, n: bool, h: bool, c: bool) -> InstructionResult {

@@ -17,7 +17,6 @@ use crate::ppu::terminal::display_frame;
 use crate::testing::doctor_session::{DoctorSession, doctor_main_loop};
 
 use constants::*;
-use env_logger;
 use mmu::{Bus, Memory};
 use opcodes::*;
 use std::io;

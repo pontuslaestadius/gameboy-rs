@@ -48,6 +48,12 @@ struct AluResult {
     c: bool,
 }
 
+impl Default for Cpu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Cpu {
     pub fn new() -> Self {
         debug!("Creating CPU");
@@ -250,15 +256,14 @@ impl Cpu {
         }
 
         // 2. Handle Interrupt Hijack
-        if bus.pending_interrupt() && self.ime {
-            if let StepFlowController::EarlyReturn(n) = self.handle_interrupts(bus) {
+        if bus.pending_interrupt() && self.ime
+            && let StepFlowController::EarlyReturn(n) = self.handle_interrupts(bus) {
                 // Add the 20 hijack cycles to our total for this step
                 total_cycles += n;
                 // DO NOT return here.
                 // PC is now at the vector (e.g., 0x0050).
                 // We want to fall through and execute the instruction at 0x0050 now.
             }
-        }
 
         self.update_ime_delay();
 
@@ -290,7 +295,7 @@ impl Cpu {
             // Hijack successful
             return StepFlowController::EarlyReturn(20);
         }
-        return StepFlowController::Continue;
+        StepFlowController::Continue
     }
     fn update_ime_delay(&mut self) {
         if self.ime_scheduled > 0 {
@@ -317,7 +322,7 @@ impl Cpu {
             // info!("Dispatching: {}, bytes: {}", code, code.bytes);
             let result = self.dispatch(code, bus);
             self.apply_flags(&code.flags, result);
-            return result.cycles;
+            result.cycles
         } else {
             panic!("Shouldn't happen.");
         }

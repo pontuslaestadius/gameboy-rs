@@ -46,6 +46,12 @@ pub struct RingBufferDoctor {
     pub head: usize,
 }
 
+impl Default for RingBufferDoctor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RingBufferDoctor {
     pub fn new() -> Self {
         // Initialize with None because the buffer is empty at start
@@ -90,13 +96,13 @@ impl DoctorSession {
         // Force write to memory to flush the serial port.
         self.memory.write_byte(0xFF02, 0x81);
         // Print a new line to avoid overwriting the test results.
-        println!("");
+        println!();
         println!("PASSED! All {} lines matched.", self.current_line);
         exit(0);
     }
     pub fn on_mismatch(&self, expected: CpuSnapshot, _received: CpuSnapshot) {
         println!("ERROR: Mismatch CPU state.");
-        println!("");
+        println!();
         let len = self.history.get_history().len();
         for (i, entry) in self.history.get_history().iter().enumerate() {
             if i == len - 1 {
