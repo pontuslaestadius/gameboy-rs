@@ -17,7 +17,7 @@ Address Range,Name,Purpose
 0x014E–0x014F,Global Checksum,A checksum of the entire ROM (the GB hardware doesn't actually check this).
 */
 
-use log::error;
+use log::{debug, error};
 
 #[derive(Debug, Default)]
 pub struct Headers {
@@ -58,7 +58,7 @@ impl Headers {
         };
 
         headers.is_valid = headers.validate(content);
-        // info!("Cartridge headers: {:?}", headers);
+        debug!("Cartridge headers: {:?}", headers);
         headers
     }
 
@@ -72,6 +72,10 @@ impl Headers {
 
         // 2. Header Checksum (0x014D)
         let mut x: u8 = 0;
+        // We don't want to do the overly complex route with:
+        // for <item> in content.iter().take(0x014C + 1).skip(0x0134) {
+        // Since content is quite large, and I don't trust the compiler enough.
+        #[allow(clippy::needless_range_loop)]
         for i in 0x0134..=0x014C {
             x = x.wrapping_sub(content[i]).wrapping_sub(1);
         }

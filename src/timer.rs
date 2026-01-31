@@ -33,6 +33,16 @@ impl Timer {
         }
     }
 
+    pub fn write_byte(&mut self, addr: u16, val: u8) {
+        match addr {
+            0xFF04 => self.div = val,
+            0xFF05 => self.tima = val,
+            0xFF06 => self.tma = val,
+            0xFF07 => self.tac = val,
+            _ => panic!("Timer has a restrictive addr space"),
+        };
+    }
+
     /// Helper to map TAC bits 0-1 to internal counter bits
     pub fn get_bit_index(&self, selection: u8) -> u16 {
         match selection {
@@ -102,10 +112,9 @@ impl Timer {
             let new_signal = timer_enabled && ((self.internal_counter >> bit_index) & 1) != 0;
 
             // Signal was High (1) and is now Low (0)
-            if old_signal && !new_signal
-                && self.increment_tima() {
-                    interrupt_requested = true;
-                }
+            if old_signal && !new_signal && self.increment_tima() {
+                interrupt_requested = true;
+            }
         }
         interrupt_requested
     }
@@ -195,5 +204,46 @@ mod test {
 
         assert_eq!(timer.tima, 0xAA, "TIMA should have reloaded from TMA");
         assert!(irq, "Timer interrupt should have been requested");
+    }
+    #[test]
+    fn test_timer_logic_isolation() {
+        let mut timer = Timer::new();
+
+        // 1. Setup: Speed 01 (bit 3), Enabled
+        timer.write_byte(0xFF07, 0x05);
+        timer.write_byte(0xFF06, 0xAA); // TMA
+        timer.write_byte(0xFF05, 0xFE); // TIMA
+
+        // 2. Tick 15 cycles. No increment should happen yet.
+        // (internal_counter 0 -> 15. Bit 3 stays 0 for cycles 0-7, becomes 1 at 8)
+        let mut irq = timer.tick(15);
+        assert!(!irq, "No interrupt should trigger before overflow");
+        assert_eq!(timer.tima, 0xFE, "TIMA should not have incremented yet");
+
+        // 3. Tick 1 more cycle (Total 16).
+        // internal_counter 15 -> 16. Bit 3 was 1, now becomes 0 (Falling Edge!)
+        irq = timer.tick(1);
+        assert!(!irq);
+        assert_eq!(
+            timer.tima, 0xFF,
+            "TIMA should be 0xFF after the falling edge at 16 cycles"
+        );
+
+        // 4. Tick 15 more cycles.
+        timer.tick(15);
+        assert_eq!(timer.tima, 0xFF);
+
+        // 5. The Overflow Tick (Cycle 32)
+        // This will trigger another falling edge, incrementing TIMA from 0xFF to 0x00.
+        irq = timer.tick(1);
+
+        assert!(
+            irq,
+            "The tick function MUST return true when TIMA overflows"
+        );
+        assert_eq!(
+            timer.tima, 0xAA,
+            "TIMA should have reloaded from TMA (0xAA)"
+        );
     }
 }

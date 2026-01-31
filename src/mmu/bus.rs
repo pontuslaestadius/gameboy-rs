@@ -24,6 +24,7 @@ use log::{debug, trace};
 use std::io::Write;
 
 use crate::{
+    constants::*,
     input::InputDevice,
     mmu::memory_trait::Memory,
     ppu::{DummyPpu, Ppu},
@@ -41,7 +42,8 @@ pub struct Bus<I: InputDevice + Default> {
     // This puts exactly 64KB on the HEAP, not the STACK
     pub data: Box<[u8; MEMORY_SIZE]>,
     // total_cycles: u64,
-    pub ppu: Box<dyn Ppu>,
+    // TODO: make generic.
+    pub ppu: Box<DummyPpu>,
     input: I,
 
     pub joypad_sel: u8,
@@ -87,7 +89,6 @@ impl<I: InputDevice + Default> Bus<I> {
         }
     }
 
-    #[cfg(test)]
     pub fn force_write_byte(&mut self, addr: u16, val: u8) {
         self.data[addr as usize] = val;
     }
@@ -95,66 +96,105 @@ impl<I: InputDevice + Default> Bus<I> {
 
 impl<I: InputDevice + Default> Memory for Bus<I> {
     fn read_byte(&self, addr: u16) -> u8 {
-        match addr {
-            // ROM: Fixed and Switchable Banks
-            // 0x0000..=0x7FFF => self.rom[addr as usize],
+        let val = match addr {
+            // ROM: 0x0000..=0x7FFF
+            ADDR_MEM_ROM_START..=ADDR_MEM_ROM_END => {
+                let b = self.data[addr as usize];
+                trace!("read_byte ROM addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // VRAM: Owned by PPU
-            0x8000..=0x9FFF => self.ppu.read_byte(addr),
+            // VRAM: 0x8000..=0x9FFF
+            ADDR_MEM_VRAM_START..=ADDR_MEM_VRAM_END => {
+                let b = self.ppu.read_byte(addr);
+                trace!("read_byte VRAM addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // External RAM (Cartridge)
-            // 0xA000..=0xBFFF => self.ext_ram[(addr - 0xA000) as usize],
+            // WRAM: 0xC000..=0xDFFF
+            ADDR_MEM_WRAM_START..=ADDR_MEM_WRAM_END => {
+                let b = self.data[addr as usize];
+                trace!("read_byte WRAM addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // Work RAM (WRAM)
-            0xC000..=0xDFFF => self.data[addr as usize],
+            // Echo RAM: 0xE000..=0xFDFF
+            ADDR_MEM_ECHO_START..=ADDR_MEM_ECHO_END => {
+                let b = self.data[(addr - 0x2000) as usize];
+                trace!("read_byte Echo RAM addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // Echo RAM: Subtract 0x2000 to redirect to WRAM
-            0xE000..=0xFDFF => self.data[(addr - 0x2000) as usize],
+            // OAM: 0xFE00..=0xFE9F
+            ADDR_MEM_OAM_START..=ADDR_MEM_OAM_END => {
+                let b = self.ppu.read_byte(addr);
+                trace!("read_byte OAM addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // OAM: Owned by PPU
-            0xFE00..=0xFE9F => self.ppu.read_byte(addr),
+            // Forbidden Zone: 0xFEA0..=0xFEFF
+            0xFEA0..=0xFEFF => {
+                trace!(
+                    "read_byte Forbidden Zone addr: {:#06X}, returning 0xFF",
+                    addr
+                );
+                0xFF
+            }
 
-            // Forbidden Zone: Usually returns 0 or 0xFF
-            0xFEA0..=0xFEFF => 0x00,
-
-            // I/O Registers
-            0xFF00 => {
-                let mut result = 0xCF | self.joypad_sel; // Keep selection bits
-
-                // If Bit 4 is 0, CPU is reading Buttons (A, B, Select, Start)
+            // Joypad: 0xFF00
+            ADDR_SYS_JOYP => {
+                let mut result = 0xCF | self.joypad_sel;
                 if (self.joypad_sel & 0x10) == 0 {
-                    // We use the same mask, but the Game Boy separates them by selection
-                    // Start/A/B/Select are bits 0-3
                     result &= self.input.read(self.joypad_sel);
                 }
-
-                // If Bit 5 is 0, CPU is reading Directions (Right, Left, Up, Down)
                 if (self.joypad_sel & 0x20) == 0 {
-                    // Directions are also bits 0-3 when read from this register
                     result &= self.input.read(self.joypad_sel);
                 }
-
+                trace!("read_byte Joypad addr: {:#06X}, val: {:#04X}", addr, result);
                 result
             }
 
-            0xFF04..=0xFF07 => self.timer.read_byte(addr),
-            // Handled by CPU.
-            // 0xFF0F => self.interrupt_flags,
-            // 0xFF0F => panic!("interrupt flags are handled internally by the CPU"),
+            // Timer: 0xFF04..=0xFF07
+            ADDR_TIMER_DIV..=ADDR_TIMER_TAC => {
+                let b = self.timer.read_byte(addr);
+                trace!("read_byte Timer addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // PPU Registers
-            0xFF40..=0xFF4B => self.ppu.read_byte(addr),
+            // PPU Registers: 0xFF40..=0xFF4B
+            ADDR_PPU_LCDC..=ADDR_PPU_WX => {
+                let b = self.ppu.read_byte(addr);
+                trace!("read_byte PPU Reg addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // High RAM (HRAM)
-            // 0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize],
+            // High RAM (HRAM): 0xFF80..=0xFFFE
+            ADDR_MEM_HRAM_START..=ADDR_MEM_HRAM_END => {
+                let b = self.data[addr as usize];
+                trace!("read_byte HRAM addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // Interrupt Enable, handled by CPU.
-            // 0xFFFF => self.interrupt_enable,
-            // 0xFFFF => panic!("interrupt enable handled internally by the CPU"),
+            ADDR_SYS_IE => {
+                let b = self.data[addr as usize];
+                trace!("read_byte IE addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
 
-            // Default: Return data from the main block or 0xFF
-            _ => self.data[addr as usize],
-        }
+            ADDR_SYS_IF => {
+                let b = self.data[addr as usize];
+                trace!("read_byte IF addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
+
+            // Default
+            _ => {
+                let b = self.data[addr as usize];
+                trace!("read_byte Default addr: {:#06X}, val: {:#04X}", addr, b);
+                b
+            }
+        };
+        val
     }
 
     // Inside your Bus/Memory write logic
@@ -178,85 +218,137 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
 
     /// Returns true if a V-Blank is triggered.
     fn tick_components(&mut self, cycles: u8) -> bool {
+        // trace!("tick components");
         if self.timer.tick(cycles) {
             trace!("tick_components: timer interrup");
             // Bit 2 is the Timer Interrupt
-            let interrupt_flags = self.read_byte(0xFF0F);
-            self.write_byte(0xFF0F, interrupt_flags | 0b100);
+            let interrupt_flags = self.read_if();
+            self.write_if(interrupt_flags | 0b100);
         }
 
         // You would also tick your PPU (Graphics) here later
         if self.ppu.tick(cycles) {
+            trace!("tick_components: ppu triggered V-Blank");
             // Manually trigger the V-Blank bit in the IF register (0xFF0F)
             let current_if = self.read_if();
-            self.write_byte(0xFF0F, current_if | 0x01);
+            self.write_if(current_if | 0x01);
             return true;
         }
         false
     }
     fn write_byte(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x7FFF => {
-                // This is likely the cause of your test failures!
+            // ROM: 0x0000..=0x7FFF (Read Only)
+            ADDR_MEM_ROM_START..=ADDR_MEM_ROM_END => {
                 trace!(
                     "write_byte [0x{:04X}] -> 0x{:02X} (IGNORED: ROM is Read Only)",
                     addr, val
                 );
             }
-            0x8000..=0x9FFF => {
+
+            // VRAM: 0x8000..=0x9FFF
+            ADDR_MEM_VRAM_START..=ADDR_MEM_VRAM_END => {
                 trace!("write_byte [0x{:04X}] -> 0x{:02X} (VRAM)", addr, val);
                 self.ppu.write_byte(addr, val);
             }
-            0xFE00..=0xFE9F => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (OAM)", addr, val);
-                self.ppu.write_byte(addr, val);
-            }
-            0xFF00 => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (JOYPAD SEL)", addr, val);
-                self.joypad_sel = val & 0x30;
-            }
-            0xFF04 => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (DIV RESET)", addr, val);
-                self.write_div();
-            }
-            0xFF05 => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TIMA)", addr, val);
-                self.timer.tima = val;
-            }
-            0xFF06 => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TMA)", addr, val);
-                self.timer.tma = val;
-            }
-            0xFF07 => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TAC)", addr, val);
-                self.timer.write_tac(val);
-            }
-            0xFF46 => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (DMA)", addr, val);
-                self.dma_transfer(val);
-            }
-            0xFF40..=0xFF4B => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (PPU REG)", addr, val);
-                self.ppu.write_byte(addr, val);
+
+            // External RAM: 0xA000..=0xBFFF (Assuming simple mapping for now)
+            ADDR_MEM_SRAM_START..=ADDR_MEM_SRAM_END => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (EXT RAM)", addr, val);
+                self.data[addr as usize] = val;
             }
 
-            0xE000..=0xFDFF => {
+            // WRAM: 0xC000..=0xDFFF
+            ADDR_MEM_WRAM_START..=ADDR_MEM_WRAM_END => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (WRAM)", addr, val);
+                self.data[addr as usize] = val;
+            }
+
+            // Echo RAM: 0xE000..=0xFDFF
+            ADDR_MEM_ECHO_START..=ADDR_MEM_ECHO_END => {
                 trace!("write_byte [0x{:04X}] -> 0x{:02X} (ECHO RAM)", addr, val);
                 self.data[(addr - 0x2000) as usize] = val;
             }
 
-            0xFF02 if val == 0x81 => {
-                let c = self.read_byte(0xFF01) as char;
-                trace!(
-                    "write_byte [0x{:04X}] -> 0x{:02X} (SERIAL LOG: '{}')",
-                    addr, val, c
-                );
-                print!("{}", c);
-                std::io::stdout().flush().unwrap();
+            // OAM: 0xFE00..=0xFE9F
+            ADDR_MEM_OAM_START..=ADDR_MEM_OAM_END => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (OAM)", addr, val);
+                self.ppu.write_byte(addr, val);
+            }
+
+            // Forbidden Zone: 0xFEA0..=0xFEFF
+            0xFEA0..=0xFEFF => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (FORBIDDEN)", addr, val);
+            }
+
+            // Joypad: 0xFF00
+            ADDR_SYS_JOYP => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (JOYPAD SEL)", addr, val);
+                self.joypad_sel = val & 0x30;
+            }
+
+            // Serial Data & Control: 0xFF01..=0xFF02
+            0xFF01 => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (SERIAL DATA)", addr, val);
+                self.data[addr as usize] = val;
+            }
+            ADDR_SYS_SB => {
+                // Assuming ADDR_SYS_SB is 0xFF02
+                if val == 0x81 {
+                    let c = self.data[0xFF01] as char;
+                    trace!(
+                        "write_byte [0x{:04X}] -> 0x{:02X} (SERIAL LOG: '{}')",
+                        addr, val, c
+                    );
+                    print!("{}", c);
+                    std::io::stdout().flush().unwrap();
+                }
+            }
+
+            // Timer Registers: 0xFF04..=0xFF07
+            ADDR_TIMER_DIV => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (DIV RESET)", addr, val);
+                self.write_div();
+            }
+            ADDR_TIMER_TIMA => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TIMA)", addr, val);
+                self.timer.tima = val;
+            }
+            ADDR_TIMER_TMA => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TMA)", addr, val);
+                self.timer.tma = val;
+            }
+            ADDR_TIMER_TAC => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TAC)", addr, val);
+                self.timer.write_tac(val);
+            }
+
+            // DMA Transfer: 0xFF46
+            ADDR_PPU_DMA => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (DMA)", addr, val);
+                self.dma_transfer(val);
+            }
+
+            // PPU Registers: 0xFF40..=0xFF4B (excluding DMA)
+            ADDR_PPU_LCDC..=ADDR_PPU_WX => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (PPU REG)", addr, val);
+                self.ppu.write_byte(addr, val);
+            }
+
+            // High RAM: 0xFF80..=0xFFFE
+            ADDR_MEM_HRAM_START..=ADDR_MEM_HRAM_END => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (HRAM)", addr, val);
+                self.data[addr as usize] = val;
+            }
+
+            // Interrupt Enable: 0xFFFF
+            ADDR_SYS_IE => {
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (IE REG)", addr, val);
+                self.data[addr as usize] = val;
             }
 
             _ => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (GENERAL)", addr, val);
+                trace!("write_byte [0x{:04X}] -> 0x{:02X} (GENERAL/IO)", addr, val);
                 self.data[addr as usize] = val;
             }
         }
@@ -354,5 +446,104 @@ mod test {
             1,
             "TIMA should have incremented due to DIV reset glitch"
         );
+    }
+    #[test]
+    fn test_vram_bus_communication() {
+        let mut bus = bus();
+        let vram_addr = 0x8000;
+        let test_byte = 0x55;
+
+        // Write to VRAM via Bus
+        bus.write_byte(vram_addr, test_byte);
+
+        // Read from VRAM via Bus
+        let read_val = bus.read_byte(vram_addr);
+
+        assert_eq!(
+            read_val, test_byte,
+            "VRAM Read/Write mismatch! Wrote {:02X}, Read {:02X}. Check Bus routing for 0x8000..=0x9FFF",
+            test_byte, read_val
+        );
+    }
+    #[test]
+    fn test_timer_standalone_lifecycle() {
+        let mut bus = bus();
+
+        // 1. Setup Timer: Enable, Speed 01 (16 T-cycles)
+        bus.write_byte(0xFF07, 0x05);
+        bus.write_byte(0xFF06, 0xAA); // TMA Reload value
+        bus.write_byte(0xFF05, 0xFE); // TIMA start
+
+        // Verify initial state
+        assert_eq!(bus.read_byte(0xFF05), 0xFE);
+
+        // 2. Tick exactly 15 cycles. TIMA should NOT change yet.
+        bus.timer.tick(15);
+        assert_eq!(
+            bus.read_byte(0xFF05),
+            0xFE,
+            "TIMA should not increment until 16 cycles"
+        );
+
+        // 3. Tick the 16th cycle.
+        bus.timer.tick(1);
+        assert_eq!(
+            bus.read_byte(0xFF05),
+            0xFF,
+            "TIMA should be 0xFF after exactly 16 cycles"
+        );
+
+        // 4. Tick 15 more cycles. Still 0xFF.
+        bus.timer.tick(15);
+        assert_eq!(
+            bus.read_byte(0xFF05),
+            0xFF,
+            "TIMA should stay 0xFF until the next 16-cycle boundary"
+        );
+
+        // 5. Tick 1 cycle to trigger overflow (255 -> 0).
+        bus.tick_components(1);
+
+        // Check state immediately after overflow
+        let tima_val = bus.read_byte(0xFF05);
+        let if_reg = bus.read_if();
+
+        // Depending on your implementation of the "4-cycle delay":
+        // If you don't have a delay, this should be 0xAA and bit 2 of IF should be set.
+        assert!(
+            tima_val == 0x00 || tima_val == 0xAA,
+            "TIMA overflowed but got 0x{:02X}",
+            tima_val
+        );
+
+        // 6. Ensure reload and interrupt are processed
+        bus.tick_components(4); // Extra ticks to clear any internal delay logic
+
+        assert_eq!(
+            bus.read_byte(0xFF05),
+            0xAA,
+            "TIMA should be reloaded with TMA (0xAA)"
+        );
+        assert!(
+            bus.read_if() & 0x04 != 0,
+            "Timer interrupt bit (2) should be set in IF"
+        );
+    }
+    #[test]
+    fn diagnostic_timer_signal() {
+        let mut bus = bus();
+
+        bus.write_byte(0xFF07, 0x05);
+        bus.write_byte(0xFF05, 0xFF); // One tick away from overflow
+
+        // 1. Trigger the overflow
+        bus.tick_components(16);
+
+        // 2. Check internal vs external state
+        let external_if_reg = bus.read_byte(0xFF0F);
+
+        println!("Bus IF Register: 0x{:02X}", external_if_reg);
+
+        assert!(external_if_reg & 0x04 != 0, "IF register bit 2 is NOT set");
     }
 }

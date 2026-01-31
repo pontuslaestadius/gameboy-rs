@@ -1,6 +1,7 @@
 // Coded with the help of Gemini.
 
 use crate::cpu::Cpu;
+use crate::cpu::alu::AluOutput;
 use crate::mmu::Memory;
 use crate::*;
 
@@ -133,18 +134,18 @@ impl InstructionSet for Cpu {
             // 8-bit Decrement (Affects Z, N, H)
             Target::Register8(reg) => {
                 let val = self.get_reg8(reg);
-                let (res, z, n, h) = self.calculate_dec_8bit(val);
-                self.set_reg8(reg, res);
-                return instruction.result_with_flags(z, n, h, false);
+                let alu = AluOutput::alu_8bit_dec(val);
+                self.set_reg8(reg, alu.value);
+                return instruction.result_with_alu(alu);
             }
 
             // 8-bit Memory Decrement (e.g., DEC (HL))
             Target::AddrRegister16(reg) => {
                 let addr = self.get_reg16(reg);
                 let val = bus.read_byte(addr);
-                let (res, z, n, h) = self.calculate_dec_8bit(val);
-                bus.write_byte(addr, res);
-                return instruction.result_with_flags(z, n, h, false);
+                let alu = AluOutput::alu_8bit_dec(val);
+                bus.write_byte(addr, alu.value);
+                return instruction.result_with_alu(alu);
             }
 
             // 16-bit Decrement (Affects NO flags)
@@ -337,7 +338,6 @@ impl InstructionSet for Cpu {
         let high = bus.read_byte(self.pc + 1) as u16;
         let target_addr = (high << 8) | low;
 
-        // 2. CHECK THE CONDITION!
         if self.check_condition(cond_target) {
             // Increment PC past the immediate address before pushing
             let return_addr = self.pc + 2;
@@ -750,8 +750,8 @@ mod test {
 
         // 3. Condition: Interrupt is PENDING
         // Ensure both IE and IF have a matching bit set (e.g., V-Blank bit 0)
-        bus.write_byte(0xFFFF, 0x01); // IE
-        bus.write_byte(0xFF0F, 0x01); // IF
+        bus.write_ie(0x01);
+        bus.write_if(0x01);
 
         // 4. Call the halt function directly
         cpu.halt(halt_info, &mut bus);

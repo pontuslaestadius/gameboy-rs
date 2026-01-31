@@ -21,4 +21,4 @@ log.txt
 *.log
 
 # Git submodules.
-testing_tools/*
+tests/tools/*

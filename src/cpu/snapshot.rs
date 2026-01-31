@@ -1,4 +1,4 @@
-use crate::constants::*;
+use crate::{constants::*, cpu::Cpu, mmu::Memory};
 
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct CpuSnapshot {
@@ -23,6 +23,33 @@ pub struct StateMismatch {
 }
 
 impl CpuSnapshot {
+    pub fn from_cpu(cpu: &Cpu, bus: &impl Memory) -> Self {
+        CpuSnapshot {
+            a: cpu.a,
+            f: cpu.f,
+            b: cpu.b,
+            c: cpu.c,
+            d: cpu.d,
+            e: cpu.e,
+            h: cpu.h,
+            l: cpu.l,
+            sp: cpu.sp,
+            pc: cpu.pc,
+
+            // n a very accurate emulator, reading 4 bytes at $PC$ every single step might
+            // technically trigger "bus reads" that shouldn't happen (if you have
+            // side-effect-heavy hardware mapped to memory). For debugging purposes, this
+            // is usually fine, but ensure your bus.read() for the snapshot doesn't
+            // accidentally "consume" or "trigger" hardware events (clearing a serial flag).
+            pcmem: [
+                bus.read_byte(cpu.pc),
+                bus.read_byte(cpu.pc.wrapping_add(1)),
+                bus.read_byte(cpu.pc.wrapping_add(2)),
+                bus.read_byte(cpu.pc.wrapping_add(3)),
+            ],
+        }
+    }
+
     pub fn pretty_format_flags(&self) -> String {
         let mut string = String::new();
         string.push('[');

@@ -6,7 +6,6 @@ pub mod input;
 pub mod mmu;
 pub mod opcodes;
 pub mod ppu;
-pub mod testing;
 pub mod timer;
 pub mod utils;
 
@@ -14,7 +13,6 @@ pub mod utils;
 use crate::cpu::Cpu;
 use crate::input::RotaryInput;
 use crate::ppu::terminal::display_frame;
-use crate::testing::doctor_session::{DoctorSession, doctor_main_loop};
 
 use constants::*;
 use mmu::{Bus, Memory};
@@ -50,12 +48,7 @@ pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
     match cartridge::load_rom(&args.load_rom) {
         Ok(buffer) => {
             // Starts the main read loop.
-            if args.doctor.golden_log.is_some() {
-                let session = DoctorSession::new(buffer, args);
-                doctor_main_loop(session);
-            } else {
-                main_loop(buffer);
-            }
+            main_loop(buffer);
         }
         Err(e) => {
             panic!("Error: {:?}", e);

@@ -1,3 +1,4 @@
+mod alu;
 mod immediate;
 mod instruction_set;
 mod operand;
@@ -7,10 +8,11 @@ mod step_flow_controller_enum;
 
 use crate::mmu::Memory;
 use crate::*;
-use log::{debug, info};
+pub use alu::{Alu, AluOutput};
+use log::{debug, info, trace};
 pub use snapshot::CpuSnapshot;
 use std::fmt;
-use step_flow_controller_enum::StepFlowController;
+pub use step_flow_controller_enum::StepFlowController;
 
 #[derive(Debug)]
 pub struct Cpu {
@@ -37,15 +39,7 @@ pub struct Cpu {
     // Since it's exactly one instruction, a simple 0, 1, 2 counter works well.
     pub ime_scheduled: u8,
 
-    halt_bug_triggered: bool,
-}
-
-struct AluResult {
-    value: u8,
-    z: bool,
-    n: bool,
-    h: bool,
-    c: bool,
+    pub halt_bug_triggered: bool,
 }
 
 impl Default for Cpu {
@@ -146,54 +140,12 @@ impl Cpu {
             FlagAction::None => {} // Instruction doesn't touch this flag. Keep old value.
         }
     }
-    fn alu_8bit_add(&self, a: u8, b: u8, use_carry: bool) -> AluResult {
-        let c_in = if use_carry && self.get_flag(FLAG_C) {
-            1
-        } else {
-            0
-        };
-
-        let res = (a as u16) + (b as u16) + (c_in as u16);
-        let res_u8 = res as u8;
-
-        // Half-Carry: Carry out of bit 3 into bit 4
-        // We check if the sum of the lower nibbles exceeds 0xF
-        let h_bit = (a & 0x0F) + (b & 0x0F) + c_in > 0x0F;
-
-        AluResult {
-            value: res_u8,
-            z: res_u8 == 0,
-            n: false,
-            h: h_bit,
-            c: res > 0xFF,
-        }
+    fn alu_8bit_add(&self, a: u8, b: u8, use_carry: bool) -> AluOutput {
+        AluOutput::alu_8bit_add(a, b, use_carry && self.get_flag(FLAG_C))
     }
 
-    fn alu_8bit_sub(&self, a: u8, b: u8, use_carry: bool) -> AluResult {
-        let c_in = if use_carry && self.get_flag(FLAG_C) {
-            1
-        } else {
-            0
-        };
-
-        // Standard subtraction result
-        let res = (a as i16) - (b as i16) - (c_in as i16);
-        let res_u8 = res as u8;
-
-        // Half-Carry (Half-Borrow): Set if there is no borrow from bit 4.
-        // In GB terms: bit 3 of 'a' was less than (bit 3 of 'b' + c_in)
-        let h_bit = (a & 0x0F) < (b & 0x0F) + c_in;
-
-        // Carry (Borrow): Set if the result is negative (a borrow from bit 8)
-        let c_bit = (a as u16) < (b as u16) + (c_in as u16);
-
-        AluResult {
-            value: res_u8,
-            z: res_u8 == 0,
-            n: true,
-            h: h_bit,
-            c: c_bit,
-        }
+    fn alu_8bit_sub(&self, a: u8, b: u8, use_carry: bool) -> AluOutput {
+        AluOutput::alu_8bit_sub(a, b, use_carry && self.get_flag(FLAG_C))
     }
 
     pub fn set_c(&mut self, value: bool) {
@@ -246,8 +198,6 @@ impl Cpu {
 
     /// Return number of cycles.
     pub fn step(&mut self, bus: &mut impl Memory) -> u8 {
-        let mut total_cycles: u8 = 0;
-
         // 1. Handle Halt Logic
         if let StepFlowController::EarlyReturn(n) = self.handle_halt_logic(bus) {
             // info!("step: halt early exit");
@@ -255,15 +205,19 @@ impl Cpu {
             return n;
         }
 
+        let mut total_cycles: u8 = 0;
+
         // 2. Handle Interrupt Hijack
-        if bus.pending_interrupt() && self.ime
-            && let StepFlowController::EarlyReturn(n) = self.handle_interrupts(bus) {
-                // Add the 20 hijack cycles to our total for this step
-                total_cycles += n;
-                // DO NOT return here.
-                // PC is now at the vector (e.g., 0x0050).
-                // We want to fall through and execute the instruction at 0x0050 now.
-            }
+        if bus.pending_interrupt()
+            && self.ime
+            && let StepFlowController::EarlyReturn(n) = self.handle_interrupts(bus)
+        {
+            // Add the 20 hijack cycles to our total for this step
+            total_cycles += n;
+            // DO NOT return here.
+            // PC is now at the vector (e.g., 0x0050).
+            // We want to fall through and execute the instruction at 0x0050 now.
+        }
 
         self.update_ime_delay();
 
@@ -278,7 +232,7 @@ impl Cpu {
         total_cycles
     }
 
-    fn handle_interrupts(&mut self, bus: &mut impl Memory) -> StepFlowController {
+    pub fn handle_interrupts(&mut self, bus: &mut impl Memory) -> StepFlowController {
         if !self.ime {
             return StepFlowController::Continue;
         }
@@ -306,7 +260,7 @@ impl Cpu {
             }
         }
     }
-    fn fetch_and_execute(&mut self, bus: &mut impl Memory) -> u8 {
+    pub fn fetch_and_execute(&mut self, bus: &mut impl Memory) -> u8 {
         let opcode = self.fetch_byte(bus);
 
         let op = if opcode == CB_PREFIX_OPCODE_BYTE {
@@ -320,6 +274,7 @@ impl Cpu {
             // info!("if: {}, ie: {}", bus.read_if(), bus.read_ie());
             // info!("{}", self);
             // info!("Dispatching: {}, bytes: {}", code, code.bytes);
+            // println!("Executing: {:X}, {:?}", self.pc, code);
             let result = self.dispatch(code, bus);
             self.apply_flags(&code.flags, result);
             result.cycles
@@ -328,7 +283,7 @@ impl Cpu {
         }
     }
 
-    fn handle_halt_logic(&mut self, bus: &mut impl Memory) -> StepFlowController {
+    pub fn handle_halt_logic(&mut self, bus: &mut impl Memory) -> StepFlowController {
         if self.halted {
             if bus.pending_interrupt() {
                 self.halted = false;
@@ -339,10 +294,10 @@ impl Cpu {
 
         StepFlowController::Continue
     }
-    fn fetch_byte(&mut self, bus: &mut impl Memory) -> u8 {
+    pub fn fetch_byte(&mut self, bus: &mut impl Memory) -> u8 {
         let byte = bus.read_byte(self.pc);
         if self.halt_bug_triggered {
-            info!("Halt bug triggered");
+            trace!("Halt bug triggered");
             self.halt_bug_triggered = false;
             // Do NOT increment PC. Next fetch will get the same byte.
         } else {
@@ -351,18 +306,10 @@ impl Cpu {
         byte
     }
 
-    fn calculate_dec_8bit(&self, value: u8) -> (u8, bool, bool, bool) {
-        let res = value.wrapping_sub(1);
-
-        // Flags:
-        let z = res == 0;
-        let n = true; // Always true for DEC
-        // Half-Carry: Set if there was a borrow from bit 4
-        // (i.e., the lower nibble was 0x0 before the decrement)
-        let h = (value & 0x0F) == 0;
-
-        (res, z, n, h)
-    }
+    // fn calculate_dec_8bit(&self, value: u8) -> (u8, bool, bool, bool) {
+    //     let alu = AluOutput::alu_8bit_dec(value);
+    //     (alu.value, alu.z, alu.n, alu.h)
+    // }
     fn check_condition(&self, target: Target) -> bool {
         match target {
             Target::Condition(cond) => match cond {
@@ -636,30 +583,7 @@ impl Cpu {
     }
 
     pub fn take_snapshot(&self, bus: &impl Memory) -> CpuSnapshot {
-        CpuSnapshot {
-            a: self.a,
-            f: self.f,
-            b: self.b,
-            c: self.c,
-            d: self.d,
-            e: self.e,
-            h: self.h,
-            l: self.l,
-            sp: self.sp,
-            pc: self.pc,
-
-            // n a very accurate emulator, reading 4 bytes at $PC$ every single step might
-            // technically trigger "bus reads" that shouldn't happen (if you have
-            // side-effect-heavy hardware mapped to memory). For debugging purposes, this
-            // is usually fine, but ensure your bus.read() for the snapshot doesn't
-            // accidentally "consume" or "trigger" hardware events (clearing a serial flag).
-            pcmem: [
-                bus.read_byte(self.pc),
-                bus.read_byte(self.pc.wrapping_add(1)),
-                bus.read_byte(self.pc.wrapping_add(2)),
-                bus.read_byte(self.pc.wrapping_add(3)),
-            ],
-        }
+        CpuSnapshot::from_cpu(self, bus)
     }
 }
 
@@ -691,735 +615,5 @@ impl fmt::Display for Cpu {
             if self.halted { "YES" } else { "NO " },
             if self.halt_bug_triggered { "!" } else { "." }
         )
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-    use crate::input::DummyInput;
-
-    fn bootstrap() -> (Cpu, Bus<DummyInput>) {
-        // RUST_LOG=trace cargo test cpu::test::test_ei_delay_timing -- --nocapture
-        // let _ = env_logger::builder().is_test(true).try_init();
-        let bus: Bus<DummyInput> = Bus::new(Vec::new()); // Your memory/system component
-        let cpu = Cpu::new();
-        (cpu, bus)
-    }
-
-    #[test]
-    fn test_ei_delay_timing() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        // 1. Execute EI (Opcode 0xFB)
-        cpu.pc = 0x100;
-        bus.force_write_byte(0x100, 0xFB); // EI
-        cpu.step(&mut bus);
-
-        // After EI, IME should still be false, but scheduled
-        assert!(!cpu.ime, "IME should not be enabled immediately after EI");
-        assert_eq!(
-            cpu.ime_scheduled, 1,
-            "IME should be scheduled for next step"
-        );
-
-        // 2. Execute a NOP (Opcode 0x00)
-        bus.write_byte(0x101, 0x00);
-        cpu.step(&mut bus);
-
-        // After the instruction FOLLOWING EI, IME becomes true
-        assert!(
-            cpu.ime,
-            "IME should be enabled after the instruction following EI"
-        );
-        assert_eq!(cpu.ime_scheduled, 0);
-    }
-
-    #[test]
-    fn test_ei_timing_strict() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        // 1. Execute EI
-        cpu.pc = 0x100;
-        bus.force_write_byte(0x100, 0xFB); // EI
-        cpu.step(&mut bus);
-
-        // After EI finishes, the 'delay' should be primed
-        // If your step decrements BEFORE fetch, this should be 1.
-        assert_eq!(
-            cpu.ime_scheduled, 1,
-            "IME should be 1 step away from enabling"
-        );
-        assert!(!cpu.ime, "IME should still be false");
-
-        // 2. Execute any other instruction (e.g., NOP)
-        bus.write_byte(0x101, 0x00);
-        cpu.step(&mut bus);
-
-        // Now IME must be true
-        assert!(
-            cpu.ime,
-            "IME should have enabled after this instruction finished"
-        );
-    }
-
-    #[test]
-    fn test_interrupt_trigger_timing_sequence() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        // 1. Initialize to a known clean state
-        cpu.pc = 0x100;
-        cpu.sp = 0xDFFD;
-        cpu.ime = false;
-        cpu.ime_scheduled = 0;
-        cpu.a = 0x01; // Value to be written to IF
-
-        // Setup: Enable V-Blank in IE (0xFFFF)
-        bus.write_byte(0xFFFF, 0x01);
-
-        // --- STEP 1: EI (FB) ---
-        bus.write_byte(0x100, 0xFB);
-        cpu.step(&mut bus);
-
-        assert_eq!(cpu.pc, 0x101, "PC should move to next instr");
-        assert!(!cpu.ime, "IME should not be active yet");
-        assert_eq!(cpu.ime_scheduled, 1, "IME should be scheduled");
-
-        // --- STEP 2: LDH (0xFF0F), A (E0 0F) ---
-        // This instruction enables the interrupt flag.
-        bus.write_byte(0x101, 0xE0);
-        bus.write_byte(0x102, 0x0F);
-        cpu.step(&mut bus);
-
-        assert_eq!(cpu.pc, 0x103, "PC should move past LDH");
-        assert!(
-            cpu.ime,
-            "IME should enable AFTER the instruction following EI"
-        );
-        assert_eq!(bus.read_byte(0xFF0F), 0x01, "IF should now be set");
-
-        // --- STEP 3: THE INTERRUPT HIJACK ---
-        // The CPU is at 0x103. IME is true. IF is 0x01.
-        // In a real Game Boy, the interrupt is serviced BEFORE 0x103 executes.
-        bus.write_byte(0x103, 0x00); // NOP (should be 'skipped' or 'delayed')
-        cpu.step(&mut bus);
-
-        // Assertions for a successful Hijack
-        assert_eq!(cpu.pc, 0x0041, "PC should be at the V-Blank vector");
-        assert_eq!(cpu.sp, 0xDFFB, "SP should have decreased by 2");
-
-        // Verify what was pushed to the stack
-        let low = bus.read_byte(cpu.sp);
-        let high = bus.read_byte(cpu.sp + 1);
-        let return_addr = ((high as u16) << 8) | (low as u16);
-        assert_eq!(
-            return_addr, 0x103,
-            "Stack must save the address of the instruction we jumped over"
-        );
-    }
-
-    #[test]
-    fn test_halt_bug_trigger() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        cpu.ime = false;
-        bus.write_byte(0xFFFF, 0x01); // IE: Enable V-Blank
-        bus.write_byte(0xFF0F, 0x01); // IF: Request V-Blank (Already pending!)
-
-        // Execute HALT (Opcode 0x76)
-        bus.write_byte(0x100, 0x76);
-        cpu.step(&mut bus);
-
-        assert!(
-            cpu.halt_bug_triggered,
-            "Halt bug should trigger when IME is off and interrupt is pending"
-        );
-        assert!(
-            !cpu.halted,
-            "CPU should NOT enter halt state when halt bug triggers"
-        );
-    }
-    #[test]
-    fn test_halt_bug_execution_cycle() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        // 1. Setup Halt Bug conditions: IME off, but Interrupt Pending
-        cpu.pc = 0x4000;
-        cpu.ime = false;
-        cpu.halt_bug_triggered = true; // Simulating the trigger from a previous HALT
-
-        // 2. Place an 'INC A' (0x3C) at 0x4000
-        // And place a 'DEC A' (0x3D) at 0x4001
-        bus.write_byte(0x4000, 0x3C);
-        bus.write_byte(0x4001, 0x3D);
-
-        cpu.a = 5;
-
-        // 3. First Step: Should execute INC A but PC stays at 0x4000
-        cpu.step(&mut bus);
-        assert_eq!(cpu.a, 6, "Instruction INC A should have executed");
-        assert_eq!(
-            cpu.pc, 0x4000,
-            "PC should NOT have moved forward (Halt Bug)"
-        );
-        assert!(
-            !cpu.halt_bug_triggered,
-            "Halt bug flag should clear after one use"
-        );
-
-        // 4. Second Step: Should execute INC A AGAIN because PC is still 0x4000
-        cpu.step(&mut bus);
-        assert_eq!(
-            cpu.a, 7,
-            "Instruction INC A should have executed a second time"
-        );
-        assert_eq!(cpu.pc, 0x4001, "PC should move forward normally now");
-    }
-    #[test]
-    fn test_ei_invincibility_window() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        // 1. Setup: Interrupt is already pending, but IME is off
-        cpu.pc = 0x100;
-        cpu.ime = false;
-        bus.force_write_byte(0xFFFF, 0x01); // IE: V-Blank enabled
-        bus.force_write_byte(0xFF0F, 0x01); // IF: V-Blank pending
-
-        // 2. Execute EI
-        bus.force_write_byte(0x100, 0xFB); // EI
-        cpu.step(&mut bus);
-
-        // PC should be 0x101. Interrupt should NOT have fired yet.
-        assert_eq!(
-            cpu.pc, 0x101,
-            "Interrupt should not hijack the EI instruction itself"
-        );
-        assert_eq!(cpu.ime_scheduled, 1);
-
-        // 3. Execute NOP at 0x101
-        bus.write_byte(0x101, 0x00);
-        cpu.step(&mut bus);
-
-        // PC should be 0x102. IME is now true.
-        // The interrupt still shouldn't have fired because the "Instruction after EI"
-        // is protected.
-        assert_eq!(
-            cpu.pc, 0x102,
-            "Interrupt should not hijack the instruction immediately following EI"
-        );
-        assert!(cpu.ime);
-
-        // 4. Next Step: NOW the jump happens
-        cpu.step(&mut bus);
-        assert_eq!(cpu.pc, 0x0041, "Interrupt should finally fire here");
-    }
-    #[test]
-    fn test_interrupt_masking() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        cpu.ime = true;
-        bus.force_write_byte(0xFFFF, 0x01); // IE: Only V-Blank (bit 0)
-        bus.force_write_byte(0xFF0F, 0x02); // IF: LCD Stat (bit 1) requested
-
-        // Step the CPU
-        cpu.pc = 0x200;
-        bus.force_write_byte(0x200, 0x00); // NOP
-        cpu.step(&mut bus);
-
-        assert_eq!(
-            cpu.pc, 0x201,
-            "Should NOT jump because LCD Stat is not enabled in IE"
-        );
-    }
-    #[test]
-    fn test_halt_bug_multi_byte_shift() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        cpu.pc = 0x4000;
-        cpu.ime = false;
-        cpu.halt_bug_triggered = true;
-
-        // 0x3E is 'LD A, n8'.
-        // It normally reads 0x3E, then reads the next byte as data.
-        bus.force_write_byte(0x4000, 0x3E);
-        bus.force_write_byte(0x4001, 0xFF); // This was supposed to be the data
-
-        cpu.a = 0;
-
-        // EXECUTION:
-        // 1. Fetch 0x3E. PC does NOT increment (stays at 0x4000).
-        // 2. LD A, n8 needs a byte. It reads bus.read(PC).
-        // 3. Since PC is 0x4000, it reads 0x3E AGAIN.
-        cpu.step(&mut bus);
-
-        assert_eq!(
-            cpu.a, 0x3E,
-            "A should contain the OPCODE, not the DATA, because of the PC shift"
-        );
-        assert_eq!(
-            cpu.pc, 0x4001,
-            "PC should end up at 0x4001 (only incremented once for the operand)"
-        );
-    }
-    #[test]
-    fn test_timer_interrupt_trigger() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        // 1. Enable Timer at fastest speed (4MHz / 16)
-        // TAC: Bit 2 (Enable) = 1, Bits 0-1 (Speed 01) = 1 -> 0b101 (0x05)
-        bus.force_write_byte(0xFF07, 0x05);
-        bus.force_write_byte(0xFF05, 0xFE); // Set TIMA near overflow
-        bus.force_write_byte(0xFF06, 0xAA); // Set TMA reload value
-
-        // 2. Step the CPU (or just the timer) for enough cycles to overflow
-        // Fastest speed is 16 cycles. If your step() increments cycles:
-        for _ in 0..10 {
-            cpu.step(&mut bus);
-        }
-
-        // 3. Verify
-        let if_reg = bus.read_byte(0xFF0F);
-        assert!(
-            if_reg & 0x04 != 0,
-            "Timer interrupt bit (2) should be set in IF"
-        );
-        assert_eq!(
-            bus.read_byte(0xFF05),
-            0xAA,
-            "TIMA should have reloaded from TMA"
-        );
-    }
-    #[test]
-    fn test_log_alignment_interrupt_hijack() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        // 1. Initial State from Log 151345
-        cpu.pc = 0xC2BE;
-        cpu.sp = 0xDFFD;
-        cpu.a = 0x04;
-        cpu.b = 0x01;
-        cpu.ime = true;
-
-        // Enable Timer Interrupt in IE
-        bus.force_write_byte(0xFFFF, 0x04);
-
-        // 2. Setup Memory
-        // C2BE: LDH (0xFF0F), A  -> This triggers the interrupt
-        bus.force_write_byte(0xC2BE, 0xE0);
-        bus.force_write_byte(0xC2BF, 0x0F);
-
-        // C2C0: DEC B -> This should be "skipped" (pushed to stack)
-        bus.force_write_byte(0xC2C0, 0x05);
-
-        // 0050: INC A -> First instruction of ISR
-        bus.force_write_byte(0x0050, 0x3C);
-
-        // --- STEP 1: Execute LDH ---
-        cpu.step(&mut bus);
-        // After this, PC should be C2C0, and IF bit 2 should be set.
-        assert_eq!(cpu.pc, 0xC2C0);
-        assert_eq!(
-            bus.read_byte(0xFF0F) & 0x04,
-            0x04,
-            "Timer interrupt should be pending"
-        );
-
-        // --- STEP 2: The Hijack Step ---
-        // This is where your 'Was' differed from 'Expected'.
-        // The Doctor expects that the NEXT step shows the result of the first ISR instruction.
-        cpu.step(&mut bus);
-
-        // Assertions based on "Expected" log 151347
-        assert_eq!(
-            cpu.pc, 0x0051,
-            "PC should be at 0x051 (Vector 0x050 + INC A executed)"
-        );
-        assert_eq!(cpu.a, 0x05, "A should be 0x05 (INC A executed)");
-        assert_eq!(
-            cpu.sp, 0xDFFB,
-            "SP should be DFFB (PC C2C0 pushed to stack)"
-        );
-
-        let stack_low = bus.read_byte(0xDFFB);
-        let stack_high = bus.read_byte(0xDFFC);
-        assert_eq!(stack_low, 0xC0);
-        assert_eq!(stack_high, 0xC2);
-    }
-    #[test]
-    fn test_handle_interrupts_return_state() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        // Setup state before interrupt
-        cpu.pc = 0xC2C0;
-        cpu.ime = true;
-        bus.force_write_byte(0xFFFF, 0x04); // IE: Timer
-        bus.force_write_byte(0xFF0F, 0x04); // IF: Timer
-
-        // Call the function
-        let result = cpu.handle_interrupts(&mut bus);
-
-        // 1. Check Flow Control
-        match result {
-            StepFlowController::EarlyReturn(cycles) => assert_eq!(cycles, 20),
-            _ => panic!("Expected EarlyReturn(20)"),
-        }
-
-        // 2. Check side effects
-        assert_eq!(cpu.pc, 0x0050, "PC should be at Timer Vector");
-        assert_eq!(cpu.ime, false, "IME should be disabled after service");
-        assert_eq!(bus.read_byte(0xFF0F) & 0x04, 0, "IF bit should be cleared");
-    }
-    #[test]
-    fn test_halt_bug_pc_behavior() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        cpu.pc = 0xC000;
-        cpu.ime = false; // IME must be OFF for the bug
-
-        // 1. Setup HALT followed by a NOP
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x3C); // INC A (The instruction that will be affected)
-
-        // 2. Make an interrupt pending
-        bus.force_write_byte(0xFFFF, 0x01); // IE: V-Blank
-        bus.force_write_byte(0xFF0F, 0x01); // IF: V-Blank
-
-        // 3. Step once (Executes HALT)
-        cpu.step(&mut bus);
-
-        // In the HALT BUG, the CPU doesn't stop,
-        // and it fails to increment PC for the NEXT instruction.
-        assert!(!cpu.halted, "CPU should not be halted due to HALT bug");
-        assert_eq!(cpu.pc, 0xC001, "PC should point to INC A");
-
-        // 4. Step again (Executes INC A)
-        cpu.step(&mut bus);
-
-        // THE BUG: The PC should still be 0xC001 because the increment was skipped!
-        assert_eq!(
-            cpu.pc, 0xC001,
-            "HALT Bug failed: PC should not have advanced after INC A"
-        );
-        assert_eq!(cpu.a, 1, "INC A should have executed once");
-
-        // 5. Step again (Executes INC A a second time)
-        cpu.step(&mut bus);
-        assert_eq!(cpu.pc, 0xC002, "PC should finally advance now");
-        assert_eq!(cpu.a, 2, "INC A should have executed twice total");
-    }
-    #[test]
-    fn test_halt_bug_lifecycle() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        cpu.pc = 0xC000;
-        cpu.ime = false;
-
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x3C); // INC A
-
-        // Trigger condition for HALT Bug: IME=0 and (IE & IF) != 0
-        bus.force_write_byte(0xFFFF, 0x01);
-        bus.force_write_byte(0xFF0F, 0x01);
-
-        // Step 1: Execute HALT
-        cpu.step(&mut bus);
-
-        // After HALT executes, the bug flag should be true, but we shouldn't be "halted"
-        assert!(
-            cpu.halt_bug_triggered,
-            "Flag should be set after 0x76 execution"
-        );
-        assert!(!cpu.halted, "Should not be in halted state");
-
-        // Step 2: Execute INC A (The first time)
-        cpu.step(&mut bus);
-
-        // The flag MUST be false now. If it's still true, the next step will double-execute.
-        assert!(
-            !cpu.halt_bug_triggered,
-            "Flag should have been cleared by fetch_byte"
-        );
-        assert_eq!(cpu.a, 1, "INC A should have executed once");
-        assert_eq!(cpu.pc, 0xC001, "PC should still be 0xC001 due to the bug");
-    }
-
-    #[test]
-    fn test_halt_no_bug_if_ime_on() {
-        let (mut cpu, mut bus) = bootstrap();
-        cpu.pc = 0xC000;
-        cpu.ime = true; // IME is ON
-
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x3C); // INC A
-        bus.force_write_byte(0xFFFF, 0x01); // IE
-        bus.force_write_byte(0xFF0F, 0x01); // IF (Interrupt is pending!)
-
-        cpu.step(&mut bus);
-
-        // Because IME is ON, it should NOT trigger the halt bug.
-        // It should service the interrupt instead (PC jumps to vector).
-        assert!(!cpu.halt_bug_triggered);
-        assert_ne!(cpu.pc, 0xC001, "Should have jumped to interrupt vector");
-    }
-    #[test]
-    fn test_halt_wakeup_and_stay_awake() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        cpu.pc = 0xC000;
-        cpu.ime = false;
-
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x00); // NOP
-        bus.force_write_byte(0xC002, 0x00); // NOP
-
-        // 1. Execute HALT
-        cpu.step(&mut bus);
-        assert!(cpu.halted, "Should be halted now");
-
-        // 2. Trigger interrupt to wake it up
-        bus.force_write_byte(0xFFFF, 0x01);
-        bus.force_write_byte(0xFF0F, 0x01);
-
-        // 3. This step should wake up and execute the NOP at C001
-        cpu.step(&mut bus);
-        assert!(!cpu.halted, "Should have woken up");
-        assert_eq!(cpu.pc, 0xC002, "Should have moved past the first NOP");
-
-        // 4. This step should execute the NOP at C002
-        // If your bug exists, this will return "early exit" instead!
-        cpu.step(&mut bus);
-        assert_eq!(cpu.pc, 0xC003, "Should have moved past the second NOP");
-    }
-    #[test]
-    fn test_halt_prohibit_immediate_rehalt() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        cpu.pc = 0xC000;
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x00); // NOP
-
-        // 1. Execute HALT
-        cpu.step(&mut bus);
-        assert!(cpu.halted);
-        // PC should have incremented to C001 after fetching the 0x76
-        assert_eq!(cpu.pc, 0xC001);
-
-        // 2. Wake up
-        bus.write_byte(0xFFFF, 0x01);
-        bus.write_byte(0xFF0F, 0x01);
-
-        cpu.step(&mut bus); // Should execute NOP
-        assert!(!cpu.halted, "CPU should be awake");
-        assert_eq!(cpu.pc, 0xC002, "PC should have moved to C002");
-
-        // 3. Next step should NOT be a halt exit
-        let result = cpu.handle_halt_logic(&mut bus);
-        assert!(matches!(result, StepFlowController::Continue));
-    }
-    #[test]
-    fn test_halt_bug_step_isolation() {
-        let (mut cpu, mut bus) = bootstrap();
-        cpu.pc = 0xC000;
-        cpu.ime = false;
-
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x3C); // INC A
-        bus.force_write_byte(0xFFFF, 0x01); // IE
-        bus.force_write_byte(0xFF0F, 0x01); // IF
-
-        // Execute exactly ONE step. This should ONLY execute HALT.
-        cpu.step(&mut bus);
-
-        assert_eq!(
-            cpu.a, 0,
-            "A should STILL be 0. If it is 1, HALT is executing the next op immediately."
-        );
-        assert_eq!(
-            cpu.pc, 0xC001,
-            "PC should have moved to the next byte (INC A)"
-        );
-        assert!(
-            cpu.halt_bug_triggered,
-            "Bug should be armed for the NEXT step"
-        );
-    }
-    #[test]
-    fn test_halt_bug_step_by_step() {
-        let (mut cpu, mut bus) = bootstrap();
-
-        cpu.pc = 0xC000;
-        cpu.ime = false;
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x3C); // INC A
-        bus.force_write_byte(0xFFFF, 0x01); // IE
-        bus.force_write_byte(0xFF0F, 0x01); // IF
-
-        // --- MANUALLY SIMULATE STEP 1 (HALT) ---
-
-        // 1. Fetch the opcode
-        let opcode = cpu.fetch_byte(&mut bus);
-        assert_eq!(opcode, 0x76, "Should fetch HALT");
-        assert_eq!(
-            cpu.pc, 0xC001,
-            "PC should increment to C001 after fetching 0x76"
-        );
-
-        // 2. Dispatch/Execute
-        // We assume your dispatch calls your 'halt' function internally
-        cpu.fetch_and_execute(&mut bus);
-        // Wait! If you call fetch_and_execute here, it will fetch the NEXT byte.
-        // Let's call the logic directly if possible, or just look at the state:
-
-        assert!(cpu.halt_bug_triggered, "Flag must be true now");
-        assert_eq!(cpu.a, 0, "A should not have changed yet");
-        assert_eq!(cpu.pc, 0xC001, "PC should still be at C001");
-
-        // --- MANUALLY SIMULATE STEP 2 (The Buggy Fetch) ---
-
-        // 1. First fetch of INC A
-        let opcode2 = cpu.fetch_byte(&mut bus);
-        assert_eq!(opcode2, 0x3C, "Should fetch INC A");
-
-        // THE CRITICAL CHECK:
-        assert_eq!(cpu.pc, 0xC001, "HALT BUG: PC should NOT have incremented!");
-        assert!(
-            !cpu.halt_bug_triggered,
-            "Flag should have been cleared by fetch_byte"
-        );
-
-        // 2. Execute the INC A
-        // (Manual dispatch for INC A logic)
-        cpu.a += 1;
-
-        // --- MANUALLY SIMULATE STEP 3 (The Second Fetch) ---
-
-        // 1. Second fetch of INC A (because PC is still C001)
-        let opcode3 = cpu.fetch_byte(&mut bus);
-        assert_eq!(opcode3, 0x3C, "Should fetch INC A again");
-        assert_eq!(cpu.pc, 0xC002, "Now PC should finally increment to C002");
-
-        cpu.a += 1;
-
-        assert_eq!(cpu.a, 2, "A should be 2 after the double execution");
-    }
-    #[test]
-    fn test_halt_pc_movement_only() {
-        let (mut cpu, mut bus) = bootstrap();
-        cpu.pc = 0xC36F;
-        bus.force_write_byte(0xC36F, 0x76); // HALT
-        bus.force_write_byte(0xC370, 0x00); // NOP
-
-        // We use the same conditions as your log (IME=0, IF=0)
-        cpu.ime = false;
-        bus.force_write_byte(0xFF0F, 0x00);
-
-        cpu.step(&mut bus);
-
-        // After HALT, PC should be exactly one byte forward.
-        assert_eq!(
-            cpu.pc, 0xC370,
-            "PC should move from C36F to C370 after HALT fetch"
-        );
-        assert!(cpu.halted, "CPU should be halted");
-    }
-    #[test]
-    fn test_halt_bug_pc_locking() {
-        let (mut cpu, mut bus) = bootstrap();
-        cpu.pc = 0xC000;
-        cpu.ime = false;
-
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xFFFF, 0x01); // IE
-        bus.force_write_byte(0xFF0F, 0x01); // IF (Bug triggered!)
-
-        // 1. Fetch the 0x76
-        let op = cpu.fetch_byte(&mut bus);
-        assert_eq!(cpu.pc, 0xC001, "PC must move to C001 after fetching HALT");
-
-        // 2. Execute HALT
-        let info = OPCODES[0x76].unwrap();
-        assert_eq!(info.mnemonic, Mnemonic::HALT);
-        cpu.halt(info, &mut bus);
-        assert!(cpu.halt_bug_triggered);
-
-        // 3. The NEXT fetch (the bugged one)
-        let next_op = cpu.fetch_byte(&mut bus);
-        assert_eq!(cpu.pc, 0xC001, "BUG: PC should NOT move during this fetch!");
-
-        // 4. The THIRD fetch (the recovery)
-        let final_op = cpu.fetch_byte(&mut bus);
-        assert_eq!(cpu.pc, 0xC002, "PC should finally move to C002 now");
-    }
-    #[test]
-    fn test_manual_bug_execution() {
-        let (mut cpu, mut bus) = bootstrap();
-        cpu.pc = 0xC000;
-        cpu.ime = false;
-
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x3C); // INC A
-        bus.force_write_byte(0xFFFF, 0x01); // IE
-        bus.force_write_byte(0xFF0F, 0x01); // IF
-
-        // 1. Manually run the first instruction (HALT)
-        cpu.fetch_and_execute(&mut bus);
-        assert!(cpu.halt_bug_triggered);
-        assert_eq!(cpu.pc, 0xC001);
-
-        // 2. Manually run the second instruction (The first INC A)
-        cpu.fetch_and_execute(&mut bus);
-        assert_eq!(cpu.a, 1, "A should be 1 after one fetch_and_execute");
-        assert_eq!(cpu.pc, 0xC001, "PC should STILL be C001");
-
-        // 3. Manually run the third instruction (The second INC A)
-        cpu.fetch_and_execute(&mut bus);
-        assert_eq!(cpu.a, 2, "A should be 2 after second fetch_and_execute");
-        assert_eq!(cpu.pc, 0xC002, "PC should finally be C002");
-    }
-    #[test]
-    fn test_fetch_byte_bug_isolation() {
-        let (mut cpu, mut bus) = bootstrap();
-        cpu.pc = 0xC000;
-
-        // Arm the bug manually
-        cpu.halt_bug_triggered = true;
-        bus.force_write_byte(0xC000, 0x3C); // INC A
-
-        // First fetch: should NOT increment PC
-        let op1 = cpu.fetch_byte(&mut bus);
-        assert_eq!(op1, 0x3C);
-        assert_eq!(cpu.pc, 0xC000, "PC should not have moved!");
-        assert!(!cpu.halt_bug_triggered, "Flag should be reset");
-
-        // Second fetch: should increment PC
-        let op2 = cpu.fetch_byte(&mut bus);
-        assert_eq!(op2, 0x3C);
-        assert_eq!(cpu.pc, 0xC001, "PC should move now");
-    }
-    #[test]
-    fn test_pc_and_flag_alignment() {
-        let (mut cpu, mut bus) = bootstrap();
-        cpu.pc = 0xC000;
-        cpu.ime = false;
-
-        bus.force_write_byte(0xC000, 0x76); // HALT
-        bus.force_write_byte(0xC001, 0x3C); // INC A
-        bus.force_write_byte(0xFFFF, 0x01); // IE
-        bus.force_write_byte(0xFF0F, 0x01); // IF
-
-        // Step 1: Execute HALT
-        cpu.fetch_and_execute(&mut bus);
-        // PC should be C001, Bug should be true
-        assert_eq!(cpu.pc, 0xC001);
-        assert!(cpu.halt_bug_triggered);
-
-        // Step 2: Execute INC A
-        cpu.fetch_and_execute(&mut bus);
-        // PC should be C001 (because fetch_byte skipped increment)
-        // BUT! Did your dispatch/length-adder move it to C002?
-
-        println!("PC after first INC A: {:04X}", cpu.pc);
-        println!("Bug Flag after first INC A: {}", cpu.halt_bug_triggered);
     }
 }

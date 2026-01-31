@@ -1,21 +1,24 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::exit;
 
-use log::info;
+use log::{info, trace};
 
-use crate::args::Args;
-use crate::cartridge::Headers;
-use crate::cpu::{Cpu, CpuSnapshot};
-use crate::input::DummyInput;
-use crate::mmu::Memory;
-use crate::utils::output_string_diff;
-use crate::*;
+use gameboy_rs::args::Args;
+use gameboy_rs::cartridge::Headers;
+use gameboy_rs::cpu::{Cpu, CpuSnapshot};
+use gameboy_rs::input::DummyInput;
+use gameboy_rs::mmu::Bus;
+use gameboy_rs::mmu::Memory;
+use gameboy_rs::opcodes::OpcodeInfo;
+use gameboy_rs::utils::output_string_diff;
 
 /// Binds together a rom, a register and the flags.
 /// Used for holding the entire 'session' of a emulation.
 pub struct DoctorSession {
     pub golden_log: BufReader<File>,
+    pub log_path: Option<PathBuf>,
     pub current_line: usize,
     pub memory: Bus<DummyInput>,
     pub cpu: Cpu,
@@ -31,6 +34,7 @@ impl DoctorSession {
         Self {
             golden_log: reader,
             current_line: 1,
+            log_path: args.log_path,
             memory: Bus::new(buffer),
             cpu: Cpu::new(),
             headers,
@@ -102,17 +106,25 @@ impl DoctorSession {
     }
     pub fn on_mismatch(&self, expected: CpuSnapshot, _received: CpuSnapshot) {
         println!("ERROR: Mismatch CPU state.");
+        if let Some(log_path) = self.log_path.clone() {
+            println!("Log file: {:?}", log_path);
+        }
+
         println!();
+        // println!(
+        //     "LINE-- | AA | FFFF | BB | CC | DD | EE | HH | LL | SP-- | PC-- | PCMEM +1 +2 +3 +4"
+        // );
         let len = self.history.get_history().len();
         for (i, entry) in self.history.get_history().iter().enumerate() {
             if i == len - 1 {
+                // Print as Hex to save chars.
                 println!(
-                    "{: <10} Expected: {}",
+                    "{:06X} Expected: {}",
                     entry.line,
                     expected.to_doctor_string()
                 );
                 println!(
-                    "           Was:      {}",
+                    "       Was:      {}",
                     output_string_diff(
                         &expected.to_doctor_string(),
                         &entry.state.to_doctor_string()
@@ -120,13 +132,15 @@ impl DoctorSession {
                 );
             } else {
                 println!(
-                    "{: <10} State:    {}",
+                    "{:06X} State:    {}",
                     entry.line,
                     entry.state.to_doctor_string()
                 );
-                println!("           Instr:    {}", entry.instruction);
+                println!("       Instr:    {}", entry.instruction);
             }
         }
+
+        println!("{:?}", self.memory.ppu);
 
         exit(1);
     }
@@ -142,21 +156,20 @@ impl DoctorSession {
         let expected = CpuSnapshot::from_string(expected).unwrap();
         let received = self.cpu.take_snapshot(&self.memory);
         let (code, _nr) = self.cpu.get_current_opcode(&self.memory);
-        info!("Line: {}", self.current_line);
-        info!("Code: {}", code);
-        info!("State: {}", received.to_doctor_string());
+        trace!("Line: {:06X} Code: {}", self.current_line, code);
+        // trace!("State: {}", received.to_doctor_string());
         self.history.push(code, received, self.current_line);
-        self.cpu.step(&mut self.memory);
-
+        let cycles = self.cpu.step(&mut self.memory);
+        self.memory.tick_components(cycles);
         if expected != received {
             self.on_mismatch(expected, received);
         }
         self.current_line += 1;
     }
-}
 
-pub fn doctor_main_loop(mut session: DoctorSession) {
-    loop {
-        session.next();
+    pub fn main_loop(mut self) {
+        loop {
+            self.next();
+        }
     }
 }

@@ -1,6 +1,8 @@
 pub mod terminal;
 
-use log::warn;
+use core::fmt;
+
+use log::{trace, warn};
 
 const OAM_SIZE: usize = 0xA0; // 160 bytes.
 
@@ -21,6 +23,8 @@ pub trait Ppu {
     /// Returns the 160x144 pixel data.
     /// Using u8 to represent the 4 shades (0-3).
     fn get_frame_buffer(&self) -> &[u8; 23040];
+    fn get_dot_counter(&self) -> u32;
+    fn set_ly(&mut self, val: u8);
 }
 
 pub struct DummyPpu {
@@ -208,7 +212,55 @@ impl DummyPpu {
     // }
 }
 
+impl fmt::Debug for DummyPpu {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mode = self.stat & 0x03;
+        let mode_str = match mode {
+            0 => "H-Blank",
+            1 => "V-Blank",
+            2 => "OAM Scan",
+            3 => "Drawing",
+            _ => "Unknown",
+        };
+
+        write!(
+            f,
+            "--- PPU State ---\n\
+             LY:   {:<3} (0x{:02X}) | LYC:  {:<3} (0x{:02X})\n\
+             DOTS: {:<3}            | STAT: 0x{:02X} ({})\n\
+             LCDC: 0x{:02X}         | BGP:  0x{:02X}\n\
+             SCX:  0x{:02X}         | SCY:  0x{:02X}\n\
+             WX:   0x{:02X}         | WY:   0x{:02X}\n\
+             OBP0: 0x{:02X}         | OBP1: 0x{:02X}\n\
+             -----------------",
+            self.ly,
+            self.ly,
+            self.lyc,
+            self.lyc,
+            self.dot_counter,
+            self.stat,
+            mode_str,
+            self.lcdc,
+            self.bgp,
+            self.scx,
+            self.scy,
+            self.wx,
+            self.wy,
+            self.obp0,
+            self.obp1
+        )
+    }
+}
+
 impl Ppu for DummyPpu {
+    fn set_ly(&mut self, val: u8) {
+        self.ly = val;
+    }
+
+    fn get_dot_counter(&self) -> u32 {
+        self.dot_counter
+    }
+
     fn write_oam(&mut self, addr: usize, val: u8) {
         // debug_assert!(addr > OAM_SIZE, "Out of bound write_oam");
         self.oam[addr] = val;
@@ -218,6 +270,10 @@ impl Ppu for DummyPpu {
     }
     fn tick(&mut self, cycles: u8) -> bool {
         self.dot_counter += cycles as u32;
+        // trace!(
+        //     "ppu: tick: {}, (new counter: {}, old ly: {})",
+        //     cycles, self.dot_counter, self.ly
+        // );
 
         if self.dot_counter >= 456 {
             self.dot_counter -= 456;
@@ -238,7 +294,6 @@ impl Ppu for DummyPpu {
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
-        
         // info!("ppu: read_byte: addr: {:04X}, val: {:02X}", addr, val);
         match addr {
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize],

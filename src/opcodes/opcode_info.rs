@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::cpu::AluOutput;
+
 use super::*;
 
 #[derive(Debug, Copy, Clone)]
@@ -20,6 +22,10 @@ impl OpcodeInfo {
     /// For instructions that need to pass calculated flag proposals.
     pub fn result_with_flags(&self, z: bool, n: bool, h: bool, c: bool) -> InstructionResult {
         InstructionResult::with_flags(self, z, n, h, c)
+    }
+
+    pub fn result_with_alu(&self, alu: AluOutput) -> InstructionResult {
+        InstructionResult::with_flags(self, alu.z, alu.n, alu.h, alu.c)
     }
     pub fn last_operand(&self) -> (Target, bool) {
         if self.operands.len() == 1 {

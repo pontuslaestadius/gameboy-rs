@@ -48,28 +48,13 @@ clean:
 build:
 	cargo build
 
-# Pattern rule for running the doctor
-# Example: 'make doctor-2'
-doctor-%: $(UNZIPPED_DIR)/%.log
-	@echo "Testing ROM: $(ROM_$*)"
-	@RUST_BACKTRACE=1 cargo run --quiet --release --features doctor -- \
-		--golden-log $< \
-		--log-path /tmp/doctor-output.log \
-		--load-rom "$(ROM_DIR)/$(ROM_$*)"
+# Replaced with:
+# cargo nextest run --test doctor_regressions --no-fail-fast
 
-
-# Convert the numbers into target names: doctor-1, doctor-2, etc.
-ALL_TARGETS = $(patsubst %, doctor-%, $(NUMBERS))
-
-# The main command to run everything
-test-all: $(ALL_TARGETS)
-	@echo "--------------------------------------"
-	@echo "🎉 ALL DOCTOR TESTS PASSED SUCCESSFULLY!"
-	@echo "--------------------------------------"
 
 release:
 	cargo build --release
-	cargo  install cargo-strip
+	cargo install cargo-strip
 	cargo strip
 	strip target/release/gameboy_rs
 
