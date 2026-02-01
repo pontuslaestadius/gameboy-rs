@@ -8,6 +8,7 @@ pub trait Memory {
     fn read_byte_raw(&self, addr: u16) -> u8;
     fn read_byte(&self, addr: u16) -> u8;
     fn write_byte(&mut self, addr: u16, val: u8);
+    fn force_write_byte(&mut self, addr: u16, val: u8);
     fn tick_components(&mut self, cycles: u8) -> bool;
     fn write_div(&mut self);
 
@@ -22,6 +23,12 @@ pub trait Memory {
     fn write_u16(&mut self, addr: u16, val: u16) {
         self.write_byte(addr, (val & 0xFF) as u8);
         self.write_byte(addr.wrapping_add(1), (val >> 8) as u8);
+    }
+
+    fn force_write_bytes(&mut self, start_addr: u16, bytes: &[u8]) {
+        for (i, &byte) in bytes.iter().enumerate() {
+            self.force_write_byte(start_addr + i as u16, byte);
+        }
     }
 
     fn read_ie(&self) -> u8 {

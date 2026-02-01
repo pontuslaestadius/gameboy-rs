@@ -1,10 +1,16 @@
-use gameboy_rs::constants::ADDR_VEC_VBLANK;
+use gameboy_rs::constants::{
+    ADDR_SYS_IE, ADDR_SYS_IF, ADDR_TIMER_TAC, ADDR_TIMER_TIMA, ADDR_TIMER_TMA, ADDR_VEC_VBLANK,
+};
 use gameboy_rs::cpu::{Cpu, StepFlowController};
 use gameboy_rs::input::DummyInput;
 use gameboy_rs::mmu::Bus;
 use gameboy_rs::mmu::Memory;
 use gameboy_rs::opcodes::{InstructionSet, Mnemonic, OPCODES};
 use gameboy_rs::ppu::Ppu;
+
+const NOP: u8 = 0x00;
+const HALT: u8 = 0x76;
+const INC_A: u8 = 0x3C;
 
 fn bootstrap() -> (Cpu, Bus<DummyInput>) {
     // RUST_LOG=trace cargo test cpu::test::test_ei_delay_timing -- --nocapture
@@ -82,10 +88,10 @@ fn test_interrupt_trigger_timing_sequence() {
     cpu.a = 0x01; // Value to be written to IF
 
     // Setup: Enable V-Blank in IE (0xFFFF)
-    bus.write_byte(0xFFFF, 0x01);
+    bus.write_ie(0x01);
 
     // --- STEP 1: EI (FB) ---
-    bus.write_byte(0x100, 0xFB);
+    bus.force_write_bytes(cpu.pc, &[0xFB, 0xE0, 0x0F]);
     cpu.step(&mut bus);
 
     assert_eq!(cpu.pc, 0x101, "PC should move to next instr");
@@ -94,8 +100,6 @@ fn test_interrupt_trigger_timing_sequence() {
 
     // --- STEP 2: LDH (0xFF0F), A (E0 0F) ---
     // This instruction enables the interrupt flag.
-    bus.write_byte(0x101, 0xE0);
-    bus.write_byte(0x102, 0x0F);
     cpu.step(&mut bus);
 
     assert_eq!(cpu.pc, 0x103, "PC should move past LDH");
@@ -130,11 +134,11 @@ fn test_halt_bug_trigger() {
     let (mut cpu, mut bus) = bootstrap();
 
     cpu.ime = false;
-    bus.write_byte(0xFFFF, 0x01); // IE: Enable V-Blank
-    bus.write_byte(0xFF0F, 0x01); // IF: Request V-Blank (Already pending!)
+    bus.write_ie(0x01); // IE: Enable V-Blank
+    bus.write_if(0x01); // IF: Request V-Blank (Already pending!)
 
-    // Execute HALT (Opcode 0x76)
-    bus.write_byte(0x100, 0x76);
+    // Execute HALT (Opcode HALT)
+    bus.force_write_byte(0x100, HALT);
     cpu.step(&mut bus);
 
     assert!(
@@ -155,13 +159,11 @@ fn test_halt_bug_execution_cycle() {
     cpu.ime = false;
     cpu.halt_bug_triggered = true; // Simulating the trigger from a previous HALT
 
-    let inc_a_idx = 0x3C;
-    let inc_a_opcode = OPCODES[inc_a_idx].unwrap();
+    let inc_a_opcode = OPCODES[INC_A as usize].unwrap();
     assert_eq!(inc_a_opcode.mnemonic, Mnemonic::INC);
-    // 2. Place an 'INC A' (0x3C) at 0x4000
+    // 2. Place an 'INC A' (INC_A) at 0x4000
     // And place a 'DEC A' (0x3D) at 0x4001
-    bus.force_write_byte(0x4000, inc_a_idx as u8);
-    bus.force_write_byte(0x4001, 0x3D);
+    bus.force_write_bytes(cpu.pc, &[INC_A, 0x3D]);
 
     cpu.a = 5;
 
@@ -193,8 +195,8 @@ fn test_ei_invincibility_window() {
     // 1. Setup: Interrupt is already pending, but IME is off
     cpu.pc = 0x100;
     cpu.ime = false;
-    bus.force_write_byte(0xFFFF, 0x01); // IE: V-Blank enabled
-    bus.force_write_byte(0xFF0F, 0x01); // IF: V-Blank pending
+    bus.write_ie(0x01); // IE: V-Blank enabled
+    bus.write_if(0x01); // IF: V-Blank pending
 
     // 2. Execute EI
     bus.force_write_byte(0x100, 0xFB); // EI
@@ -208,7 +210,7 @@ fn test_ei_invincibility_window() {
     assert_eq!(cpu.ime_scheduled, 1);
 
     // 3. Execute NOP at 0x101
-    bus.write_byte(0x101, 0x00);
+    bus.force_write_byte(0x101, 0x00);
     let cycles = cpu.step(&mut bus);
     assert_eq!(4, cycles);
 
@@ -221,17 +223,30 @@ fn test_ei_invincibility_window() {
     );
     assert!(cpu.ime);
 
-    // 4. Next Step: NOW the jump happens
+    // 4. Next Step: The Hardware Hijack
     cpu.step(&mut bus);
-    assert_eq!(cpu.pc, 0x0041, "Interrupt should finally fire here");
+
+    // PC should be the START of the vector, not the byte after.
+    assert_eq!(
+        cpu.pc, 0x0040,
+        "CPU should be sitting at the V-Blank vector"
+    );
+
+    // 5. Execute first instruction of the ISR
+    bus.force_write_byte(0x0040, 0x00); // Put a NOP at the vector
+    cpu.step(&mut bus);
+    assert_eq!(
+        cpu.pc, 0x0041,
+        "CPU should have now executed the first byte of the ISR"
+    );
 }
 #[test]
 fn test_interrupt_masking() {
     let (mut cpu, mut bus) = bootstrap();
 
     cpu.ime = true;
-    bus.force_write_byte(0xFFFF, 0x01); // IE: Only V-Blank (bit 0)
-    bus.force_write_byte(0xFF0F, 0x02); // IF: LCD Stat (bit 1) requested
+    bus.write_ie(0x01); // IE: Only V-Blank (bit 0)
+    bus.write_if(0x02); // IF: LCD Stat (bit 1) requested
 
     // Step the CPU
     cpu.pc = 0x200;
@@ -253,8 +268,7 @@ fn test_halt_bug_multi_byte_shift() {
 
     // 0x3E is 'LD A, n8'.
     // It normally reads 0x3E, then reads the next byte as data.
-    bus.force_write_byte(0x4000, 0x3E);
-    bus.force_write_byte(0x4001, 0xFF); // This was supposed to be the data
+    bus.force_write_bytes(cpu.pc, &[0x3E, 0xFF]);
 
     cpu.a = 0;
 
@@ -278,20 +292,21 @@ fn test_timer_full_lifecycle() {
     let (mut cpu, mut bus) = bootstrap();
 
     // 1. Setup: Speed 01 (16 T-cycles per increment)
-    bus.write_byte(0xFF07, 0x05);
-    bus.write_byte(0xFF05, 0xFE); // TIMA = 254
-    bus.write_byte(0xFF06, 0xAA); // TMA = 170
+    bus.write_byte(ADDR_TIMER_TAC, 0x05);
+    bus.write_byte(ADDR_TIMER_TIMA, 0xFE);
+    bus.write_byte(ADDR_TIMER_TMA, 0xAA);
 
     let mut total_cycles = 0;
 
     // --- PHASE 1: Increment from 254 to 255 ---
     while total_cycles < 16 {
         let cycles = cpu.step(&mut bus);
+        assert_eq!(cycles, 4);
         bus.tick_components(cycles);
         total_cycles += cycles;
     }
     assert_eq!(
-        bus.read_byte(0xFF05),
+        bus.read_byte(ADDR_TIMER_TIMA),
         0xFF,
         "TIMA should be 0xFF after 16+ cycles (Total: {})",
         total_cycles
@@ -307,7 +322,7 @@ fn test_timer_full_lifecycle() {
 
     // Note: On real hardware, there is a 4-cycle window where TIMA is 0x00 before reload.
     // If your timer implements this delay, TIMA might be 0x00 or 0xAA depending on the exact cycle.
-    let tima_val = bus.read_byte(0xFF05);
+    let tima_val = bus.read_byte(ADDR_TIMER_TIMA);
     assert!(
         tima_val == 0x00 || tima_val == 0xAA,
         "TIMA should be 0x00 or reloaded to 0xAA (Got: 0x{:02X})",
@@ -322,12 +337,12 @@ fn test_timer_full_lifecycle() {
     }
 
     assert_eq!(
-        bus.read_byte(0xFF05),
+        bus.read_byte(ADDR_TIMER_TIMA),
         0xAA,
         "TIMA should definitely be 0xAA (TMA) now"
     );
     assert!(
-        bus.read_byte(0xFF0F) & 0x04 != 0,
+        bus.read_if() & 0x04 != 0,
         "Timer Interrupt flag (bit 2) should be set in IF"
     );
 }
@@ -473,32 +488,27 @@ fn test_log_alignment_interrupt_hijack() {
     cpu.ime = true;
 
     // Enable Timer Interrupt in IE
-    bus.force_write_byte(0xFFFF, 0x04);
+    bus.write_ie(0x04);
 
     // 2. Setup Memory
     // C2BE: LDH (0xFF0F), A  -> This triggers the interrupt
-    bus.force_write_byte(0xC2BE, 0xE0);
-    bus.force_write_byte(0xC2BF, 0x0F);
-
     // C2C0: DEC B -> This should be "skipped" (pushed to stack)
-    bus.force_write_byte(0xC2C0, 0x05);
+    bus.force_write_bytes(cpu.pc, &[0xE0, 0x0F, 0x05]); // LDH (0xFF0F), A and DEC B
 
     // 0050: INC A -> First instruction of ISR
-    bus.force_write_byte(0x0050, 0x3C);
+    bus.force_write_byte(0x0050, INC_A);
 
     // --- STEP 1: Execute LDH ---
     cpu.step(&mut bus);
     // After this, PC should be C2C0, and IF bit 2 should be set.
     assert_eq!(cpu.pc, 0xC2C0);
     assert_eq!(
-        bus.read_byte(0xFF0F) & 0x04,
+        bus.read_if() & 0x04,
         0x04,
         "Timer interrupt should be pending"
     );
 
     // --- STEP 2: The Hijack Step ---
-    // This is where your 'Was' differed from 'Expected'.
-    // The Doctor expects that the NEXT step shows the result of the first ISR instruction.
     cpu.step(&mut bus);
 
     // Assertions based on "Expected" log 151347
@@ -524,8 +534,8 @@ fn test_handle_interrupts_return_state() {
     // Setup state before interrupt
     cpu.pc = 0xC2C0;
     cpu.ime = true;
-    bus.force_write_byte(0xFFFF, 0x04); // IE: Timer
-    bus.force_write_byte(0xFF0F, 0x04); // IF: Timer
+    bus.write_ie(0x04); // IE: Timer
+    bus.write_if(0x04); // IF: Timer
 
     // Call the function
     let result = cpu.handle_interrupts(&mut bus);
@@ -547,14 +557,14 @@ fn test_halt_bug_pc_behavior() {
 
     cpu.pc = 0xC000;
     cpu.ime = false; // IME must be OFF for the bug
+    let initial_a = cpu.a;
 
     // 1. Setup HALT followed by a NOP
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xC001, 0x3C); // INC A (The instruction that will be affected)
+    bus.force_write_bytes(cpu.pc, &[HALT, INC_A]); // INC_A will be affected.
 
     // 2. Make an interrupt pending
-    bus.force_write_byte(0xFFFF, 0x01); // IE: V-Blank
-    bus.force_write_byte(0xFF0F, 0x01); // IF: V-Blank
+    bus.write_ie(0x01); // V-Blank
+    bus.write_if(0x01); // V-Blank
 
     // 3. Step once (Executes HALT)
     cpu.step(&mut bus);
@@ -572,49 +582,69 @@ fn test_halt_bug_pc_behavior() {
         cpu.pc, 0xC001,
         "HALT Bug failed: PC should not have advanced after INC A"
     );
-    assert_eq!(cpu.a, 1, "INC A should have executed once");
+    assert_eq!(cpu.a, initial_a + 1, "INC A should have executed once");
 
     // 5. Step again (Executes INC A a second time)
     cpu.step(&mut bus);
     assert_eq!(cpu.pc, 0xC002, "PC should finally advance now");
-    assert_eq!(cpu.a, 2, "INC A should have executed twice total");
+    assert_eq!(
+        cpu.a,
+        initial_a + 2,
+        "INC A should have executed twice total"
+    );
 }
 #[test]
 fn test_halt_bug_lifecycle() {
     let (mut cpu, mut bus) = bootstrap();
 
+    // Explicitly initialize state for a clean test
+    cpu.a = 0;
     cpu.pc = 0xC000;
     cpu.ime = false;
 
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xC001, 0x3C); // INC A
+    bus.force_write_bytes(cpu.pc, &[HALT, INC_A]);
 
     // Trigger condition for HALT Bug: IME=0 and (IE & IF) != 0
-    bus.force_write_byte(0xFFFF, 0x01);
-    bus.force_write_byte(0xFF0F, 0x01);
+    bus.write_ie(0x01); // IE: V-Blank enabled
+    bus.write_if(0x01); // IF: V-Blank pending
 
-    // Step 1: Execute HALT
+    // --- Step 1: Execute HALT ---
     let cycles = cpu.step(&mut bus);
     bus.tick_components(cycles);
 
-    // After HALT executes, the bug flag should be true, but we shouldn't be "halted"
+    // The CPU should NOT enter the halted state, but the bug should be primed
+    assert!(cpu.halt_bug_triggered, "Halt bug should be primed");
     assert!(
-        cpu.halt_bug_triggered,
-        "Flag should be set after 0x76 execution"
+        !cpu.halted,
+        "CPU should not actually halt when an interrupt is pending and IME=0"
     );
-    assert!(!cpu.halted, "Should not be in halted state");
+    assert_eq!(cpu.pc, 0xC001, "PC should move to the byte after HALT");
 
-    // Step 2: Execute INC A (The first time)
+    // --- Step 2: Execute INC A (First Time) ---
+    // Because of the bug, the CPU fetches INC A but fails to increment the PC.
     let cycles = cpu.step(&mut bus);
     bus.tick_components(cycles);
 
-    // The flag MUST be false now. If it's still true, the next step will double-execute.
+    assert_eq!(cpu.a, 1, "INC A should have executed once");
+    assert_eq!(
+        cpu.pc, 0xC001,
+        "PC MUST NOT increment! This is the essence of the Halt Bug."
+    );
     assert!(
         !cpu.halt_bug_triggered,
-        "Flag should have been cleared by fetch_byte"
+        "The bug flag should clear after the failed increment"
     );
-    assert_eq!(cpu.a, 1, "INC A should have executed once");
-    assert_eq!(cpu.pc, 0xC001, "PC should still be 0xC001 due to the bug");
+
+    // --- Step 3: Execute INC A (Second Time) ---
+    // The PC is still at 0xC001, so the CPU fetches and executes INC A again.
+    let cycles = cpu.step(&mut bus);
+    bus.tick_components(cycles);
+
+    assert_eq!(cpu.a, 2, "INC A should have executed a second time");
+    assert_eq!(
+        cpu.pc, 0xC002,
+        "PC should now finally move forward normally"
+    );
 }
 
 #[test]
@@ -623,10 +653,9 @@ fn test_halt_no_bug_if_ime_on() {
     cpu.pc = 0xC000;
     cpu.ime = true; // IME is ON
 
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xC001, 0x3C); // INC A
-    bus.force_write_byte(0xFFFF, 0x01); // IE
-    bus.force_write_byte(0xFF0F, 0x01); // IF (Interrupt is pending!)
+    bus.force_write_bytes(cpu.pc, &[HALT, INC_A]);
+    bus.force_write_byte(ADDR_SYS_IE, 0x01);
+    bus.force_write_byte(ADDR_SYS_IF, 0x01); // IF (Interrupt is pending!)
 
     cpu.step(&mut bus);
 
@@ -642,10 +671,8 @@ fn test_halt_wakeup_and_stay_awake() {
     cpu.pc = 0xC000;
     cpu.ime = false;
 
-    bus.force_write_byte(0xC000, 0x76); // HALT
     // Default is NOP, but i guess it's better to be explicit.
-    bus.force_write_byte(0xC001, 0x00); // NOP
-    bus.force_write_byte(0xC002, 0x00); // NOP
+    bus.force_write_bytes(cpu.pc, &[HALT, NOP, NOP]);
 
     // 1. Execute HALT
     cpu.step(&mut bus);
@@ -670,13 +697,12 @@ fn test_halt_prohibit_immediate_rehalt() {
     let (mut cpu, mut bus) = bootstrap();
 
     cpu.pc = 0xC000;
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xC001, 0x00); // NOP
+    bus.force_write_bytes(cpu.pc, &[HALT, NOP]);
 
     // 1. Execute HALT
     cpu.step(&mut bus);
     assert!(cpu.halted);
-    // PC should have incremented to C001 after fetching the 0x76
+    // PC should have incremented to C001 after fetching the HALT
     assert_eq!(cpu.pc, 0xC001);
 
     // 2. Wake up
@@ -696,18 +722,18 @@ fn test_halt_bug_step_isolation() {
     let (mut cpu, mut bus) = bootstrap();
     cpu.pc = 0xC000;
     cpu.ime = false;
+    let initial_a = cpu.a;
 
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xC001, 0x3C); // INC A
-    bus.force_write_byte(0xFFFF, 0x01); // IE
-    bus.force_write_byte(0xFF0F, 0x01); // IF
+    bus.force_write_bytes(cpu.pc, &[HALT, INC_A]);
+    bus.write_ie(0x01); // IE: V-Blank enabled
+    bus.write_if(0x01); // IF: V-Blank pending
 
     // Execute exactly ONE step. This should ONLY execute HALT.
     cpu.step(&mut bus);
 
     assert_eq!(
-        cpu.a, 0,
-        "A should STILL be 0. If it is 1, HALT is executing the next op immediately."
+        cpu.a, initial_a,
+        "A should STILL be initial value, if it's not, HALT is executing the next op immediately."
     );
     assert_eq!(
         cpu.pc, 0xC001,
@@ -724,36 +750,34 @@ fn test_halt_bug_step_by_step() {
 
     cpu.pc = 0xC000;
     cpu.ime = false;
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xC001, 0x3C); // INC A
-    bus.force_write_byte(0xFFFF, 0x01); // IE
-    bus.force_write_byte(0xFF0F, 0x01); // IF
+    let initial_a = cpu.a;
+    bus.force_write_bytes(cpu.pc, &[HALT, INC_A]);
+    bus.write_ie(0x01); // IE: V-Blank enabled
+    bus.write_if(0x01); // IF: V-Blank pending
 
     // --- MANUALLY SIMULATE STEP 1 (HALT) ---
 
     // 1. Fetch the opcode
     let opcode = cpu.fetch_byte(&mut bus);
-    assert_eq!(opcode, 0x76, "Should fetch HALT");
+    assert_eq!(opcode, HALT, "Should fetch HALT");
     assert_eq!(
         cpu.pc, 0xC001,
-        "PC should increment to C001 after fetching 0x76"
+        "PC should increment to C001 after fetching HALT"
     );
 
     // 2. Dispatch/Execute
     // We assume your dispatch calls your 'halt' function internally
     cpu.fetch_and_execute(&mut bus);
-    // Wait! If you call fetch_and_execute here, it will fetch the NEXT byte.
-    // Let's call the logic directly if possible, or just look at the state:
 
     assert!(cpu.halt_bug_triggered, "Flag must be true now");
-    assert_eq!(cpu.a, 0, "A should not have changed yet");
+    assert_eq!(cpu.a, initial_a, "A should not have changed yet");
     assert_eq!(cpu.pc, 0xC001, "PC should still be at C001");
 
     // --- MANUALLY SIMULATE STEP 2 (The Buggy Fetch) ---
 
     // 1. First fetch of INC A
     let opcode2 = cpu.fetch_byte(&mut bus);
-    assert_eq!(opcode2, 0x3C, "Should fetch INC A");
+    assert_eq!(opcode2, INC_A, "Should fetch INC A");
 
     // THE CRITICAL CHECK:
     assert_eq!(cpu.pc, 0xC001, "HALT BUG: PC should NOT have incremented!");
@@ -770,7 +794,7 @@ fn test_halt_bug_step_by_step() {
 
     // 1. Second fetch of INC A (because PC is still C001)
     let opcode3 = cpu.fetch_byte(&mut bus);
-    assert_eq!(opcode3, 0x3C, "Should fetch INC A again");
+    assert_eq!(opcode3, INC_A, "Should fetch INC A again");
     assert_eq!(cpu.pc, 0xC002, "Now PC should finally increment to C002");
 
     cpu.a += 1;
@@ -781,8 +805,7 @@ fn test_halt_bug_step_by_step() {
 fn test_halt_pc_movement_only() {
     let (mut cpu, mut bus) = bootstrap();
     cpu.pc = 0xC36F;
-    bus.force_write_byte(0xC36F, 0x76); // HALT
-    bus.force_write_byte(0xC370, 0x00); // NOP
+    bus.force_write_bytes(cpu.pc, &[HALT, NOP]);
 
     // We use the same conditions as your log (IME=0, IF=0)
     cpu.ime = false;
@@ -803,16 +826,16 @@ fn test_halt_bug_pc_locking() {
     cpu.pc = 0xC000;
     cpu.ime = false;
 
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xFFFF, 0x01); // IE
-    bus.force_write_byte(0xFF0F, 0x01); // IF (Bug triggered!)
+    bus.force_write_byte(cpu.pc, HALT);
+    bus.write_ie(0x01);
+    bus.write_if(0x01); // Bug triggered!
 
-    // 1. Fetch the 0x76
+    // 1. Fetch the HALT
     let _op = cpu.fetch_byte(&mut bus);
     assert_eq!(cpu.pc, 0xC001, "PC must move to C001 after fetching HALT");
 
     // 2. Execute HALT
-    let info = OPCODES[0x76].unwrap();
+    let info = OPCODES[HALT as usize].unwrap();
     assert_eq!(info.mnemonic, Mnemonic::HALT);
     cpu.halt(info, &mut bus);
     assert!(cpu.halt_bug_triggered);
@@ -830,11 +853,11 @@ fn test_manual_bug_execution() {
     let (mut cpu, mut bus) = bootstrap();
     cpu.pc = 0xC000;
     cpu.ime = false;
+    let initial_a = cpu.a;
 
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xC001, 0x3C); // INC A
-    bus.force_write_byte(0xFFFF, 0x01); // IE
-    bus.force_write_byte(0xFF0F, 0x01); // IF
+    bus.force_write_bytes(cpu.pc, &[HALT, INC_A]);
+    bus.write_ie(0x01);
+    bus.write_if(0x01);
 
     // 1. Manually run the first instruction (HALT)
     cpu.fetch_and_execute(&mut bus);
@@ -843,12 +866,20 @@ fn test_manual_bug_execution() {
 
     // 2. Manually run the second instruction (The first INC A)
     cpu.fetch_and_execute(&mut bus);
-    assert_eq!(cpu.a, 1, "A should be 1 after one fetch_and_execute");
+    assert_eq!(
+        cpu.a,
+        initial_a + 1,
+        "A should be 1 after one fetch_and_execute"
+    );
     assert_eq!(cpu.pc, 0xC001, "PC should STILL be C001");
 
     // 3. Manually run the third instruction (The second INC A)
     cpu.fetch_and_execute(&mut bus);
-    assert_eq!(cpu.a, 2, "A should be 2 after second fetch_and_execute");
+    assert_eq!(
+        cpu.a,
+        initial_a + 2,
+        "A should be 2 after second fetch_and_execute"
+    );
     assert_eq!(cpu.pc, 0xC002, "PC should finally be C002");
 }
 #[test]
@@ -858,17 +889,17 @@ fn test_fetch_byte_bug_isolation() {
 
     // Arm the bug manually
     cpu.halt_bug_triggered = true;
-    bus.force_write_byte(0xC000, 0x3C); // INC A
+    bus.force_write_byte(cpu.pc, INC_A);
 
     // First fetch: should NOT increment PC
     let op1 = cpu.fetch_byte(&mut bus);
-    assert_eq!(op1, 0x3C);
+    assert_eq!(op1, INC_A);
     assert_eq!(cpu.pc, 0xC000, "PC should not have moved!");
     assert!(!cpu.halt_bug_triggered, "Flag should be reset");
 
     // Second fetch: should increment PC
     let op2 = cpu.fetch_byte(&mut bus);
-    assert_eq!(op2, 0x3C);
+    assert_eq!(op2, INC_A);
     assert_eq!(cpu.pc, 0xC001, "PC should move now");
 }
 #[test]
@@ -877,10 +908,9 @@ fn test_pc_and_flag_alignment() {
     cpu.pc = 0xC000;
     cpu.ime = false;
 
-    bus.force_write_byte(0xC000, 0x76); // HALT
-    bus.force_write_byte(0xC001, 0x3C); // INC A
-    bus.force_write_byte(0xFFFF, 0x01); // IE
-    bus.force_write_byte(0xFF0F, 0x01); // IF
+    bus.force_write_bytes(cpu.pc, &[HALT, INC_A]);
+    bus.write_ie(0x01);
+    bus.write_if(0x01);
 
     // Step 1: Execute HALT
     cpu.fetch_and_execute(&mut bus);
@@ -924,8 +954,7 @@ fn test_ldh_a_n8_regression() {
     // Manually place the instruction in memory
     // F0 = Opcode for LDH A, (n8)
     // 44 = The immediate operand (offset)
-    bus.force_write_byte(0xC7F3, 0xF0);
-    bus.force_write_byte(0xC7F4, 0x44);
+    bus.force_write_bytes(cpu.pc, &[0xF0, 0x44]);
 
     // 3. Execute the instruction
     // This should fetch 0xF0, then 0x44, then read from 0xFF44

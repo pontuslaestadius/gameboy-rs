@@ -88,13 +88,13 @@ impl<I: InputDevice + Default> Bus<I> {
             self.ppu.write_oam(i as usize, data);
         }
     }
-
-    pub fn force_write_byte(&mut self, addr: u16, val: u8) {
-        self.data[addr as usize] = val;
-    }
 }
 
 impl<I: InputDevice + Default> Memory for Bus<I> {
+    #[inline]
+    fn force_write_byte(&mut self, addr: u16, val: u8) {
+        self.data[addr as usize] = val;
+    }
     fn read_byte_raw(&self, addr: u16) -> u8 {
         self.data[addr as usize]
     }
