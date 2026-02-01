@@ -105,10 +105,10 @@ impl DoctorSession {
         println!("PASSED! All {} lines matched.", self.current_line);
         exit(0);
     }
-    pub fn on_mismatch(&self, expected: CpuSnapshot, _received: CpuSnapshot) {
-        println!("ERROR: Mismatch CPU state.");
-
+    pub fn on_mismatch(&self, expected: CpuSnapshot, received: CpuSnapshot) {
         dump_log();
+
+        println!("ERROR: Mismatch CPU state.");
 
         println!();
         // println!(
@@ -127,7 +127,8 @@ impl DoctorSession {
                     "       Was:      {}",
                     output_string_diff(
                         &expected.to_doctor_string(),
-                        &entry.state.to_doctor_string()
+                        &received.to_doctor_string(),
+                        // &entry.state.to_doctor_string()
                     )
                 );
             } else {
@@ -136,8 +137,8 @@ impl DoctorSession {
                     entry.line,
                     entry.state.to_doctor_string()
                 );
-                println!("       Instr:    {}", entry.instruction);
             }
+            println!("       Instr:    {}", entry.instruction);
         }
 
         println!("{:?}", self.memory.ppu);
@@ -145,26 +146,60 @@ impl DoctorSession {
         exit(1);
     }
 
-    pub fn next(&mut self) {
+    pub fn next_golden_log(&mut self) -> Option<CpuSnapshot> {
         let mut expected: String = String::new();
         let _ = self.golden_log.read_line(&mut expected);
         let expected = expected.trim_end();
 
         if expected.is_empty() {
-            self.on_empty_golden_log();
+            return None;
         }
+        // Unwrap is allowed here, since it's test data, it either works,
+        // Or we go new game plus.
         let expected = CpuSnapshot::from_string(expected).unwrap();
-        let received = self.cpu.take_snapshot(&self.memory);
-        let (code, _nr) = self.cpu.get_current_opcode(&self.memory);
-        trace!("Line: {:06X} Code: {}", self.current_line, code);
-        // trace!("State: {}", received.to_doctor_string());
-        self.history.push(code, received, self.current_line);
-        let cycles = self.cpu.step(&mut self.memory);
-        self.memory.tick_components(cycles);
-        if expected != received {
-            self.on_mismatch(expected, received);
+        Some(expected)
+    }
+
+    pub fn next(&mut self) {
+        // 1. Silent Phase: Process Hijacks or Halts that aren't in the log.
+        // We do this BEFORE taking the snapshot for the next log line.
+        while (self.memory.pending_interrupt() && self.cpu.ime) || self.cpu.halted {
+            trace!("Stepping without matching state");
+            let cycles = self.cpu.step(&mut self.memory);
+            self.memory.tick_components(cycles);
+
+            if self.cpu.halted && !self.memory.pending_interrupt() {
+                continue;
+            }
+            // If an interrupt just hijacked, we are now at 0x0040/0x0050.
+            // We stay in this loop if another hijack is somehow pending,
+            // otherwise we exit to log the first instruction of the ISR.
         }
-        self.current_line += 1;
+
+        // 2. Logging Phase: Now we are at a state the Doctor log expects.
+        match self.next_golden_log() {
+            Some(expected) => {
+                let received = self.cpu.take_snapshot(&self.memory);
+                let (code, _nr) = self.cpu.get_current_opcode(&self.memory);
+
+                // Push to history BEFORE execution (Pre-execution state)
+                self.history.push(code.clone(), received, self.current_line);
+
+                if expected != received {
+                    // If this fails, we can look at history to see the state
+                    // immediately after the silent hijack but before this opcode.
+                    self.on_mismatch(expected, received);
+                    return;
+                }
+
+                // 3. Execution Phase
+                let cycles = self.cpu.step(&mut self.memory);
+                self.memory.tick_components(cycles);
+
+                self.current_line += 1;
+            }
+            None => self.on_empty_golden_log(),
+        }
     }
 
     pub fn main_loop(mut self) {

@@ -1,6 +1,11 @@
+use log::trace;
+
 use crate::constants::{IE_ADDR, IF_ADDR};
 
 pub trait Memory {
+    /// Read directly from the memory without allowing the bus to route
+    /// it to any subcomponent, or inject any trace logging.
+    fn read_byte_raw(&self, addr: u16) -> u8;
     fn read_byte(&self, addr: u16) -> u8;
     fn write_byte(&mut self, addr: u16, val: u8);
     fn tick_components(&mut self, cycles: u8) -> bool;
@@ -36,6 +41,11 @@ pub trait Memory {
     }
 
     fn pending_interrupt(&self) -> bool {
-        ((self.read_if() & self.read_ie()) & 0x1F) != 0
+        let if_val = self.read_byte_raw(IF_ADDR);
+        let ie_val = self.read_byte_raw(IE_ADDR);
+        let val = ((if_val & ie_val) & 0x1F) != 0;
+        // Needs to be 6 char width, that's why the awkward spacing.
+        trace!("pending interrupt -> {}", val);
+        val
     }
 }

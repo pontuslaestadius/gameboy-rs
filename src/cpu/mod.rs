@@ -200,7 +200,7 @@ impl Cpu {
     pub fn step(&mut self, bus: &mut impl Memory) -> u8 {
         // 1. Handle Halt Logic
         if let StepFlowController::EarlyReturn(n) = self.handle_halt_logic(bus) {
-            // info!("step: halt early exit");
+            trace!("step: halt early exit");
             // bus.tick_components(n as u8);
             return n;
         }
@@ -208,10 +208,11 @@ impl Cpu {
         let mut total_cycles: u8 = 0;
 
         // 2. Handle Interrupt Hijack
-        if bus.pending_interrupt()
-            && self.ime
-            && let StepFlowController::EarlyReturn(n) = self.handle_interrupts(bus)
-        {
+        if
+        // bus.pending_interrupt()
+        //     && self.ime
+        let StepFlowController::EarlyReturn(n) = self.handle_interrupts(bus) {
+            trace!("step: interrupt hijack early exit");
             // Add the 20 hijack cycles to our total for this step
             // total_cycles += n;
             // DO NOT return here.
@@ -276,7 +277,7 @@ impl Cpu {
             // info!("if: {}, ie: {}", bus.read_if(), bus.read_ie());
             // info!("{}", self);
             // info!("Dispatching: {}, bytes: {}", code, code.bytes);
-            // println!("Executing: {:X}, {:?}", self.pc, code);
+            trace!("{}", code);
             let result = self.dispatch(code, bus);
             self.apply_flags(&code.flags, result);
             result.cycles
@@ -532,6 +533,7 @@ impl Cpu {
     }
 
     pub fn set_reg8(&mut self, reg: Reg8, val: u8) {
+        trace!("{} <- {:X}", reg, val);
         match reg {
             Reg8::A => self.a = val,
             Reg8::B => self.b = val,

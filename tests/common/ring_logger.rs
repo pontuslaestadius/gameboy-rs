@@ -44,7 +44,9 @@ pub fn dump_log() {
     }
 
     let half = (len + 1) / 2;
-    let col_width = 45; // Adjust as needed for your terminal
+    // Col width doesn't include the full line, so if we want 90 total,
+    // we need to estimate ~13 chars extra, so total 77 / 2 = ~38.
+    let col_width = 40; // Adjust as needed for your terminal
 
     println!(
         "--- LAST {} LOG LINES (Relative Index | Two-Column) ---",

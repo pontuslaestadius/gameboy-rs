@@ -49,8 +49,8 @@ impl fmt::Display for OpcodeInfo {
             .collect();
 
         if !operand_strings.is_empty() {
-            // Max 40 characters.
-            write!(f, " {: <29} {: >9}", operand_strings.join(", "), self.flags)?;
+            // Max 30 characters.
+            write!(f, " {: <19} {: >9}", operand_strings.join(", "), self.flags)?;
         }
 
         Ok(())

@@ -95,6 +95,9 @@ impl<I: InputDevice + Default> Bus<I> {
 }
 
 impl<I: InputDevice + Default> Memory for Bus<I> {
+    fn read_byte_raw(&self, addr: u16) -> u8 {
+        self.data[addr as usize]
+    }
     fn read_byte(&self, addr: u16) -> u8 {
         let val = match addr {
             // TODO: We just need to do this reliably somehow...
@@ -102,44 +105,41 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
             // ROM: 0x0000..=0x7FFF
             ADDR_MEM_ROM_START..=ADDR_MEM_ROM_END => {
                 let b = self.data[addr as usize];
-                // trace!("read_byte ROM addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (ROM)", addr, b);
                 b
             }
 
             // VRAM: 0x8000..=0x9FFF
             ADDR_MEM_VRAM_START..=ADDR_MEM_VRAM_END => {
                 let b = self.ppu.read_byte(addr);
-                trace!("read_byte VRAM addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (VRAM)", addr, b);
                 b
             }
 
             // WRAM: 0xC000..=0xDFFF
             ADDR_MEM_WRAM_START..=ADDR_MEM_WRAM_END => {
                 let b = self.data[addr as usize];
-                // trace!("read_byte WRAM addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (WRAM)", addr, b);
                 b
             }
 
             // Echo RAM: 0xE000..=0xFDFF
             ADDR_MEM_ECHO_START..=ADDR_MEM_ECHO_END => {
                 let b = self.data[(addr - 0x2000) as usize];
-                trace!("read_byte Echo RAM addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (ECHO)", addr, b);
                 b
             }
 
             // OAM: 0xFE00..=0xFE9F
             ADDR_MEM_OAM_START..=ADDR_MEM_OAM_END => {
                 let b = self.ppu.read_byte(addr);
-                trace!("read_byte OAM addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (OAM)", addr, b);
                 b
             }
 
             // Forbidden Zone: 0xFEA0..=0xFEFF
             0xFEA0..=0xFEFF => {
-                trace!(
-                    "read_byte Forbidden Zone addr: {:#06X}, returning 0xFF",
-                    addr
-                );
+                trace!("read {:#06X} -> 0xFF (FORBIDDEN)", addr);
                 0xFF
             }
 
@@ -152,47 +152,47 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
                 if (self.joypad_sel & 0x20) == 0 {
                     result &= self.input.read(self.joypad_sel);
                 }
-                trace!("read_byte Joypad addr: {:#06X}, val: {:#04X}", addr, result);
+                trace!("read [{:#06X}] -> {:#04X} (JOYPAD)", addr, result);
                 result
             }
 
             // Timer: 0xFF04..=0xFF07
             ADDR_TIMER_DIV..=ADDR_TIMER_TAC => {
                 let b = self.timer.read_byte(addr);
-                trace!("read_byte Timer addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (TIMER)", addr, b);
                 b
             }
 
             // PPU Registers: 0xFF40..=0xFF4B
             ADDR_PPU_LCDC..=ADDR_PPU_WX => {
                 let b = self.ppu.read_byte(addr);
-                trace!("read_byte PPU Reg addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (PPU)", addr, b);
                 b
             }
 
             // High RAM (HRAM): 0xFF80..=0xFFFE
             ADDR_MEM_HRAM_START..=ADDR_MEM_HRAM_END => {
                 let b = self.data[addr as usize];
-                trace!("read_byte HRAM addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (HRAM)", addr, b);
                 b
             }
 
             ADDR_SYS_IE => {
                 let b = self.data[addr as usize];
-                trace!("read_byte IE addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (IE)", addr, b);
                 b
             }
 
             ADDR_SYS_IF => {
                 let b = self.data[addr as usize];
-                trace!("read_byte IF addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (IF)", addr, b);
                 b
             }
 
             // Default
             _ => {
                 let b = self.data[addr as usize];
-                trace!("read_byte Default addr: {:#06X}, val: {:#04X}", addr, b);
+                trace!("read [{:#06X}] -> {:#04X} (DEFAULT)", addr, b);
                 b
             }
         };
@@ -243,55 +243,55 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
             // ROM: 0x0000..=0x7FFF (Read Only)
             ADDR_MEM_ROM_START..=ADDR_MEM_ROM_END => {
                 trace!(
-                    "write_byte [0x{:04X}] -> 0x{:02X} (IGNORED: ROM is Read Only)",
+                    "write [0x{:04X}] -> 0x{:02X} (IGNORED: ROM is Read Only)",
                     addr, val
                 );
             }
 
             // VRAM: 0x8000..=0x9FFF
             ADDR_MEM_VRAM_START..=ADDR_MEM_VRAM_END => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (VRAM)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (VRAM)", addr, val);
                 self.ppu.write_byte(addr, val);
             }
 
             // External RAM: 0xA000..=0xBFFF (Assuming simple mapping for now)
             ADDR_MEM_SRAM_START..=ADDR_MEM_SRAM_END => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (EXT RAM)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (EXT RAM)", addr, val);
                 self.data[addr as usize] = val;
             }
 
             // WRAM: 0xC000..=0xDFFF
             ADDR_MEM_WRAM_START..=ADDR_MEM_WRAM_END => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (WRAM)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (WRAM)", addr, val);
                 self.data[addr as usize] = val;
             }
 
             // Echo RAM: 0xE000..=0xFDFF
             ADDR_MEM_ECHO_START..=ADDR_MEM_ECHO_END => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (ECHO RAM)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (ECHO RAM)", addr, val);
                 self.data[(addr - 0x2000) as usize] = val;
             }
 
             // OAM: 0xFE00..=0xFE9F
             ADDR_MEM_OAM_START..=ADDR_MEM_OAM_END => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (OAM)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (OAM)", addr, val);
                 self.ppu.write_byte(addr, val);
             }
 
             // Forbidden Zone: 0xFEA0..=0xFEFF
             0xFEA0..=0xFEFF => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (FORBIDDEN)", addr, val);
+                trace!("write [0x{:04X}] -- 0x{:02X} (FORBIDDEN)", addr, val);
             }
 
             // Joypad: 0xFF00
             ADDR_SYS_JOYP => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (JOYPAD SEL)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (JOYPAD SEL)", addr, val);
                 self.joypad_sel = val & 0x30;
             }
 
             // Serial Data & Control: 0xFF01..=0xFF02
             0xFF01 => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (SERIAL DATA)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (SERIAL DATA)", addr, val);
                 self.data[addr as usize] = val;
             }
             ADDR_SYS_SB => {
@@ -299,7 +299,7 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
                 if val == 0x81 {
                     let c = self.data[0xFF01] as char;
                     trace!(
-                        "write_byte [0x{:04X}] -> 0x{:02X} (SERIAL LOG: '{}')",
+                        "write [0x{:04X}] -- 0x{:02X} (SERIAL LOG: '{}')",
                         addr, val, c
                     );
                     print!("{}", c);
@@ -309,48 +309,48 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
 
             // Timer Registers: 0xFF04..=0xFF07
             ADDR_TIMER_DIV => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (DIV RESET)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (DIV RESET)", addr, val);
                 self.write_div();
             }
             ADDR_TIMER_TIMA => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TIMA)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (TIMA)", addr, val);
                 self.timer.tima = val;
             }
             ADDR_TIMER_TMA => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TMA)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (TMA)", addr, val);
                 self.timer.tma = val;
             }
             ADDR_TIMER_TAC => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (TAC)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (TAC)", addr, val);
                 self.timer.write_tac(val);
             }
 
             // DMA Transfer: 0xFF46
             ADDR_PPU_DMA => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (DMA)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (DMA)", addr, val);
                 self.dma_transfer(val);
             }
 
             // PPU Registers: 0xFF40..=0xFF4B (excluding DMA)
             ADDR_PPU_LCDC..=ADDR_PPU_WX => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (PPU REG)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (PPU REG)", addr, val);
                 self.ppu.write_byte(addr, val);
             }
 
             // High RAM: 0xFF80..=0xFFFE
             ADDR_MEM_HRAM_START..=ADDR_MEM_HRAM_END => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (HRAM)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (HRAM)", addr, val);
                 self.data[addr as usize] = val;
             }
 
             // Interrupt Enable: 0xFFFF
             ADDR_SYS_IE => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (IE REG)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (IE REG)", addr, val);
                 self.data[addr as usize] = val;
             }
 
             _ => {
-                trace!("write_byte [0x{:04X}] -> 0x{:02X} (GENERAL/IO)", addr, val);
+                trace!("write [0x{:04X}] <- 0x{:02X} (GENERAL/IO)", addr, val);
                 self.data[addr as usize] = val;
             }
         }
