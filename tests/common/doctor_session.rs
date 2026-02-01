@@ -14,11 +14,12 @@ use gameboy_rs::mmu::Memory;
 use gameboy_rs::opcodes::OpcodeInfo;
 use gameboy_rs::utils::output_string_diff;
 
+use crate::common::{dump_log, init_logger};
+
 /// Binds together a rom, a register and the flags.
 /// Used for holding the entire 'session' of a emulation.
 pub struct DoctorSession {
     pub golden_log: BufReader<File>,
-    pub log_path: Option<PathBuf>,
     pub current_line: usize,
     pub memory: Bus<DummyInput>,
     pub cpu: Cpu,
@@ -28,13 +29,13 @@ pub struct DoctorSession {
 
 impl DoctorSession {
     pub fn new(buffer: Vec<u8>, args: Args) -> Self {
+        init_logger().unwrap();
         let headers = Headers::new(&buffer);
         let file = File::open(args.doctor.golden_log.unwrap()).unwrap();
         let reader = BufReader::new(file);
         Self {
             golden_log: reader,
             current_line: 1,
-            log_path: args.log_path,
             memory: Bus::new(buffer),
             cpu: Cpu::new(),
             headers,
@@ -106,9 +107,8 @@ impl DoctorSession {
     }
     pub fn on_mismatch(&self, expected: CpuSnapshot, _received: CpuSnapshot) {
         println!("ERROR: Mismatch CPU state.");
-        if let Some(log_path) = self.log_path.clone() {
-            println!("Log file: {:?}", log_path);
-        }
+
+        dump_log();
 
         println!();
         // println!(

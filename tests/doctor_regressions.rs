@@ -4,34 +4,12 @@
 mod common;
 
 use crate::common::DoctorSession;
-use std::path::PathBuf;
 
-use env_logger::Builder;
 use gameboy_rs::args::{Args, DoctorArgs};
 use gameboy_rs::cartridge;
 
-use std::io::Write;
-
 // Helper to run the emulator in doctor mode
 fn run_doctor_test(rom_id: &str, rom_name: &str) {
-    let mut builder = Builder::from_default_env();
-
-    // let env = env_logger::Env::default().default_filter_or("info");
-    // let mut builder = env_logger::Builder::from_env(env);
-    // 1. Set the format (Crucial for Gameboy Doctor)
-    builder.format(|buf, record| writeln!(buf, "{}", record.args()));
-
-    let log_path: PathBuf =
-        format!("/tmp/gameboy-doctor-regression-{}-{}.log", rom_name, rom_id).into();
-
-    let file = std::fs::File::create(log_path.clone()).unwrap();
-    // We use Target::Pipe to send logs to the file instead of stdout
-    builder.target(env_logger::Target::Pipe(Box::new(file)));
-
-    // This sets the default to 'off' if RUST_LOG isn't set
-    builder.filter_level(log::LevelFilter::Trace);
-
-    builder.init();
     let rom_path = format!(
         "./tests/tools/gb-test-roms/cpu_instrs/individual/{}",
         rom_name
@@ -51,7 +29,7 @@ fn run_doctor_test(rom_id: &str, rom_name: &str) {
     let args = Args {
         load_rom: rom_path.clone().into(),
         test: true,
-        log_path: Some(log_path),
+        log_path: None,
         doctor: DoctorArgs {
             golden_log: Some(golden_log.clone().into()),
         },

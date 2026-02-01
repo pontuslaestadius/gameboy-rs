@@ -1,3 +1,4 @@
+use gameboy_rs::constants::ADDR_VEC_VBLANK;
 use gameboy_rs::cpu::{Cpu, StepFlowController};
 use gameboy_rs::input::DummyInput;
 use gameboy_rs::mmu::Bus;
@@ -939,4 +940,39 @@ fn test_ldh_a_n8_regression() {
         cpu.a
     );
     assert_eq!(cpu.pc, 0xC7F5, "PC should have advanced by 2 bytes");
+}
+
+#[test]
+fn test_vblank_interrupt_trigger() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // 1. Setup: Enable V-Blank interrupts
+    bus.write_ie(0x01);
+    cpu.ime = true; // Master Interrupt Enable
+
+    // 2. Simulate PPU reaching V-Blank
+    // Instead of hardcoding read_byte, we simulate the PPU ticking
+    // from the end of LY 143 to the start of LY 144.
+    bus.ppu.ly = 143;
+    bus.ppu.dot_counter = 452;
+
+    // Tick the PPU enough to push it into LY 144
+    bus.tick_components(8);
+
+    assert_eq!(bus.ppu.ly, 144, "PPU should have reached LY 144");
+
+    assert_eq!(
+        bus.read_if(),
+        0x01,
+        "IF V-Blank bit should be set when LY hits 144"
+    );
+
+    // 4. Step CPU and check if it jumped to 0x0040 (V-Blank Vector)
+    // A standard interrupt takes 5 M-cycles (20 T-cycles)
+    cpu.step(&mut bus);
+
+    assert_eq!(
+        cpu.pc, ADDR_VEC_VBLANK,
+        "CPU should have jumped to V-Blank interrupt vector"
+    );
 }

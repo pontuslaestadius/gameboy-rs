@@ -28,21 +28,21 @@ pub trait Ppu {
 }
 
 pub struct DummyPpu {
-    vram: [u8; 0x2000], // 8KB
-    oam: [u8; OAM_SIZE],
-    ly: u8,           // Current Scanline (0xFF44)
-    dot_counter: u32, // Progress within the current line
-    frame_buffer: [u8; 160 * 144],
-    lcdc: u8,
-    scy: u8,
-    scx: u8,
-    bgp: u8,
-    wx: u8,
-    wy: u8,
-    stat: u8,
-    lyc: u8,
-    obp0: u8,
-    obp1: u8,
+    pub vram: [u8; 0x2000], // 8KB
+    pub oam: [u8; OAM_SIZE],
+    pub ly: u8,           // Current Scanline (0xFF44)
+    pub dot_counter: u32, // Progress within the current line
+    pub frame_buffer: [u8; 160 * 144],
+    pub lcdc: u8,
+    pub scy: u8,
+    pub scx: u8,
+    pub bgp: u8,
+    pub wx: u8,
+    pub wy: u8,
+    pub stat: u8,
+    pub lyc: u8,
+    pub obp0: u8,
+    pub obp1: u8,
 }
 
 impl Default for DummyPpu {
@@ -270,10 +270,6 @@ impl Ppu for DummyPpu {
     }
     fn tick(&mut self, cycles: u8) -> bool {
         self.dot_counter += cycles as u32;
-        // trace!(
-        //     "ppu: tick: {}, (new counter: {}, old ly: {})",
-        //     cycles, self.dot_counter, self.ly
-        // );
 
         if self.dot_counter >= 456 {
             self.dot_counter -= 456;
@@ -287,9 +283,17 @@ impl Ppu for DummyPpu {
             self.ly = (self.ly + 1) % 154;
 
             if self.ly == 144 {
+                trace!(
+                    "ppu: tick: {}, counter: {}, ly: {}!",
+                    cycles, self.dot_counter, self.ly
+                );
                 return true;
             }
         }
+        trace!(
+            "ppu: tick: {}, counter: {}, ly: {}",
+            cycles, self.dot_counter, self.ly
+        );
         false
     }
 

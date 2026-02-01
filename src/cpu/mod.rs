@@ -213,11 +213,13 @@ impl Cpu {
             && let StepFlowController::EarlyReturn(n) = self.handle_interrupts(bus)
         {
             // Add the 20 hijack cycles to our total for this step
-            total_cycles += n;
+            // total_cycles += n;
             // DO NOT return here.
             // PC is now at the vector (e.g., 0x0050).
             // We want to fall through and execute the instruction at 0x0050 now.
+            return n;
         }
+        // println!("self.pc: {}", self.pc);
 
         self.update_ime_delay();
 
