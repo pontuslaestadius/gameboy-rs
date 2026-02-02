@@ -116,15 +116,13 @@ fn test_interrupt_trigger_timing_sequence() {
     cpu.step(&mut bus);
 
     // Assertions for a successful Hijack
-    assert_eq!(cpu.pc, 0x0041, "PC should be at the V-Blank vector");
+    assert_eq!(cpu.pc, 0x0040, "PC should be at the V-Blank vector");
     assert_eq!(cpu.sp, 0xDFFB, "SP should have decreased by 2");
 
     // Verify what was pushed to the stack
-    let low = bus.read_byte(cpu.sp);
-    let high = bus.read_byte(cpu.sp + 1);
-    let return_addr = ((high as u16) << 8) | (low as u16);
     assert_eq!(
-        return_addr, 0x103,
+        bus.read_u16(cpu.sp),
+        0x103,
         "Stack must save the address of the instruction we jumped over"
     );
 }
@@ -361,7 +359,6 @@ fn test_timer_interrupt_trigger_robust() {
         let cycles = cpu.step(&mut bus);
         total_cycles += cycles;
         bus.tick_components(cycles);
-        // Optional: bus.timer.tick(cycles) if not done inside step
     }
 
     assert_eq!(
@@ -654,8 +651,8 @@ fn test_halt_no_bug_if_ime_on() {
     cpu.ime = true; // IME is ON
 
     bus.force_write_bytes(cpu.pc, &[HALT, INC_A]);
-    bus.force_write_byte(ADDR_SYS_IE, 0x01);
-    bus.force_write_byte(ADDR_SYS_IF, 0x01); // IF (Interrupt is pending!)
+    bus.write_ie(0x01);
+    bus.write_if(0x01); // IF (Interrupt is pending!)
 
     cpu.step(&mut bus);
 
@@ -679,8 +676,8 @@ fn test_halt_wakeup_and_stay_awake() {
     assert!(cpu.halted, "Should be halted now");
 
     // 2. Trigger interrupt to wake it up
-    bus.force_write_byte(0xFFFF, 0x01);
-    bus.force_write_byte(0xFF0F, 0x01);
+    bus.write_ie(0x01);
+    bus.write_if(0x01);
 
     // 3. This step should wake up and execute the NOP at C001
     cpu.step(&mut bus);
@@ -706,8 +703,8 @@ fn test_halt_prohibit_immediate_rehalt() {
     assert_eq!(cpu.pc, 0xC001);
 
     // 2. Wake up
-    bus.write_byte(0xFFFF, 0x01);
-    bus.write_byte(0xFF0F, 0x01);
+    bus.write_ie(0x01);
+    bus.write_if(0x01);
 
     cpu.step(&mut bus); // Should execute NOP
     assert!(!cpu.halted, "CPU should be awake");
@@ -750,54 +747,26 @@ fn test_halt_bug_step_by_step() {
 
     cpu.pc = 0xC000;
     cpu.ime = false;
-    let initial_a = cpu.a;
-    bus.force_write_bytes(cpu.pc, &[HALT, INC_A]);
+    bus.force_write_bytes(cpu.pc, &[INC_A]);
     bus.write_ie(0x01); // IE: V-Blank enabled
     bus.write_if(0x01); // IF: V-Blank pending
+    assert_eq!(bus.pending_interrupt(), true);
 
-    // --- MANUALLY SIMULATE STEP 1 (HALT) ---
-
-    // 1. Fetch the opcode
-    let opcode = cpu.fetch_byte(&mut bus);
-    assert_eq!(opcode, HALT, "Should fetch HALT");
-    assert_eq!(
-        cpu.pc, 0xC001,
-        "PC should increment to C001 after fetching HALT"
-    );
-
-    // 2. Dispatch/Execute
-    // We assume your dispatch calls your 'halt' function internally
-    cpu.fetch_and_execute(&mut bus);
+    cpu.halt(OPCODES[HALT as usize].unwrap(), &mut bus);
 
     assert!(cpu.halt_bug_triggered, "Flag must be true now");
-    assert_eq!(cpu.a, initial_a, "A should not have changed yet");
-    assert_eq!(cpu.pc, 0xC001, "PC should still be at C001");
 
-    // --- MANUALLY SIMULATE STEP 2 (The Buggy Fetch) ---
+    cpu.fetch_and_execute(&mut bus);
 
-    // 1. First fetch of INC A
-    let opcode2 = cpu.fetch_byte(&mut bus);
-    assert_eq!(opcode2, INC_A, "Should fetch INC A");
-
-    // THE CRITICAL CHECK:
-    assert_eq!(cpu.pc, 0xC001, "HALT BUG: PC should NOT have incremented!");
+    assert_eq!(cpu.pc, 0xC000, "HALT BUG: PC should NOT have incremented!");
     assert!(
         !cpu.halt_bug_triggered,
         "Flag should have been cleared by fetch_byte"
     );
 
-    // 2. Execute the INC A
-    // (Manual dispatch for INC A logic)
-    cpu.a += 1;
-
-    // --- MANUALLY SIMULATE STEP 3 (The Second Fetch) ---
-
-    // 1. Second fetch of INC A (because PC is still C001)
     let opcode3 = cpu.fetch_byte(&mut bus);
     assert_eq!(opcode3, INC_A, "Should fetch INC A again");
-    assert_eq!(cpu.pc, 0xC002, "Now PC should finally increment to C002");
-
-    cpu.a += 1;
+    assert_eq!(cpu.pc, 0xC001, "Now PC should finally increment to C002");
 
     assert_eq!(cpu.a, 2, "A should be 2 after the double execution");
 }

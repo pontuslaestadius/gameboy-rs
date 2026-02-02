@@ -477,11 +477,9 @@ impl InstructionSet for Cpu {
     }
 
     fn halt(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
-        let pending = (bus.read_byte(IF_ADDR) & bus.read_byte(IE_ADDR)) & 0x1F;
-
         if self.ime {
             self.halted = true;
-        } else if pending != 0 {
+        } else if bus.pending_interrupt() {
             // THE HALT BUG: IME is 0 and an interrupt is already pending.
             // The next instruction is "duplicated" or the PC fails to increment.
             self.halt_bug_triggered = true;
