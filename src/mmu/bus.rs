@@ -20,8 +20,8 @@ FFFF	FFFF	Interrupt Enable register (IE)
 We make an abstraction, and don't store it 1-1.
 */
 
-use log::{debug, trace};
-use std::io::Write;
+use log::{debug, info, trace};
+// use std::io::Write;
 
 use crate::{
     constants::*,
@@ -47,6 +47,7 @@ pub struct Bus<I: InputDevice + Default> {
     input: I,
 
     pub joypad_sel: u8,
+    pub serial_buffer: Vec<u8>,
 }
 
 impl<I: InputDevice + Default> Bus<I> {
@@ -73,6 +74,7 @@ impl<I: InputDevice + Default> Bus<I> {
             ppu: Box::new(DummyPpu::new()),
             joypad_sel: 0xFF,
             input: I::default(),
+            serial_buffer: Vec::new(),
         }
     }
     fn dma_transfer(&mut self, val: u8) {
@@ -290,20 +292,29 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
             }
 
             // Serial Data & Control: 0xFF01..=0xFF02
-            0xFF01 => {
+            ADDR_SYS_SB => {
                 trace!("write [0x{:04X}] <- 0x{:02X} (SERIAL DATA)", addr, val);
                 self.data[addr as usize] = val;
             }
-            ADDR_SYS_SB => {
-                // Assuming ADDR_SYS_SB is 0xFF02
+            ADDR_SYS_SC => {
                 if val == 0x81 {
-                    let c = self.data[0xFF01] as char;
-                    trace!(
-                        "write [0x{:04X}] -- 0x{:02X} (SERIAL LOG: '{}')",
-                        addr, val, c
-                    );
-                    print!("{}", c);
-                    std::io::stdout().flush().unwrap();
+                    // Transfer requested! Grab the byte from SB.
+                    let c = self.data[ADDR_SYS_SB as usize];
+                    self.serial_buffer.push(c);
+                    // This comes with the defect of printing a new line
+                    // between each character. We'll just pretend it's
+                    // intentional,as it's Japanese hardware.
+                    // :
+                    // )
+                    // info!("{}", c);
+                    // Flush is only required if we're using print.
+                    // let _ = std::io::stdout().flush();
+
+                    // On real hardware, the bit 7 is cleared after transfer completes.
+                    // Some test ROMs wait for this bit to clear.
+                    self.data[ADDR_SYS_SC as usize] = val & 0x7F;
+                } else {
+                    self.data[ADDR_SYS_SC as usize] = val;
                 }
             }
 

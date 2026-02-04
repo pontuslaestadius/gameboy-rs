@@ -1,0 +1,45 @@
+use std::process::exit;
+
+use gameboy_rs::{cpu::Cpu, input::DummyInput, mmu::Bus};
+
+use crate::common::EvaluationSpec;
+
+pub struct SerialEvaluator {
+    pub max_cycles: u64,
+    pub cycles: u64,
+}
+
+impl SerialEvaluator {
+    pub fn new() -> Self {
+        Self {
+            cycles: 0,
+            max_cycles: 100_000_000,
+        }
+    }
+}
+
+impl EvaluationSpec for SerialEvaluator {
+    fn evaluate(&mut self, _cpu: &Cpu, bus: &Bus<DummyInput>) -> bool {
+        self.cycles += 1;
+        // We only check for success/fail every few thousand cycles
+        // to avoid expensive string searching on every single opcode.
+        if self.cycles % 1000 == 0 {
+            let output = String::from_utf8_lossy(&bus.serial_buffer);
+            if output.contains("Passed") {
+                return false;
+            }
+            if output.contains("Failed") {
+                return false;
+            }
+        }
+        self.cycles < self.max_cycles
+    }
+
+    fn report(&self, _cpu: &Cpu, bus: &Bus<DummyInput>) {
+        let output = String::from_utf8_lossy(&bus.serial_buffer);
+        if !output.contains("Passed") {
+            exit(1);
+        }
+        exit(0);
+    }
+}

@@ -10,19 +10,19 @@ use gameboy_rs::utils::output_string_diff;
 use crate::common::ring_buffer_doctor::RingBufferDoctor;
 use crate::common::{EvaluationSpec, dump_log, init_logger};
 
-pub enum EvaluationMode {
-    /// A 'doctor' test pairs a test rom with a line-by-line
-    /// CPU state comparison, offering deep insight.
-    GoldenLog,
-    /// Expect the test to print "Passed" to the memory serial bus.
-    SerialBus,
-    /// We've finished reading the file, it's the last strict option,
-    /// and should only be used if no other mode is available.
-    EndOfFile,
-    /// If we're running in interactive mode, the user has the absolute say.
-    /// This is equivelent to saying "no evaluation."
-    None,
-}
+// pub enum EvaluationMode {
+//     /// A 'doctor' test pairs a test rom with a line-by-line
+//     /// CPU state comparison, offering deep insight.
+//     GoldenLog,
+//     /// Expect the test to print "Passed" to the memory serial bus.
+//     SerialBus,
+//     /// We've finished reading the file, it's the last strict option,
+//     /// and should only be used if no other mode is available.
+//     EndOfFile,
+//     /// If we're running in interactive mode, the user has the absolute say.
+//     /// This is equivelent to saying "no evaluation."
+//     None,
+// }
 
 /// Binds together a rom, a register and the flags.
 /// Used for holding the entire 'session' of a emulation.
