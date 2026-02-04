@@ -1,110 +1,96 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
 use std::process::exit;
 
-use log::{info, trace};
-
-use gameboy_rs::args::Args;
-use gameboy_rs::cartridge::Headers;
 use gameboy_rs::cpu::{Cpu, CpuSnapshot};
 use gameboy_rs::input::DummyInput;
 use gameboy_rs::mmu::Bus;
-use gameboy_rs::mmu::Memory;
-use gameboy_rs::opcodes::OpcodeInfo;
 use gameboy_rs::utils::output_string_diff;
 
-use crate::common::{dump_log, init_logger};
+use crate::common::ring_buffer_doctor::RingBufferDoctor;
+use crate::common::{EvaluationSpec, dump_log, init_logger};
+
+pub enum EvaluationMode {
+    /// A 'doctor' test pairs a test rom with a line-by-line
+    /// CPU state comparison, offering deep insight.
+    GoldenLog,
+    /// Expect the test to print "Passed" to the memory serial bus.
+    SerialBus,
+    /// We've finished reading the file, it's the last strict option,
+    /// and should only be used if no other mode is available.
+    EndOfFile,
+    /// If we're running in interactive mode, the user has the absolute say.
+    /// This is equivelent to saying "no evaluation."
+    None,
+}
 
 /// Binds together a rom, a register and the flags.
 /// Used for holding the entire 'session' of a emulation.
-pub struct DoctorSession {
+pub struct DoctorEvaluator {
     pub golden_log: BufReader<File>,
     pub current_line: usize,
-    pub memory: Bus<DummyInput>,
-    pub cpu: Cpu,
-    pub headers: Headers,
     pub history: RingBufferDoctor,
+    pub is_failure: Option<CpuSnapshot>,
 }
 
-impl DoctorSession {
-    pub fn new(buffer: Vec<u8>, args: Args) -> Self {
+impl EvaluationSpec for DoctorEvaluator {
+    fn pre_step(&mut self, cpu: &Cpu, bus: &Bus<DummyInput>) -> bool {
+        // self.is_failure = true;
+        // return false;
+        match self.next_golden_log() {
+            Some(expected) => {
+                let received = cpu.take_snapshot(&bus);
+                let (code, _nr) = cpu.get_current_opcode(&bus);
+
+                // Push to history BEFORE execution (Pre-execution state)
+                self.history.push(code.clone(), received, self.current_line);
+
+                if expected != received {
+                    self.is_failure = Some(expected);
+                    return false;
+                }
+
+                self.current_line += 1;
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn report(&self, _cpu: &Cpu, memory: &Bus<DummyInput>) {
+        if let Some(expected) = self.is_failure {
+            // If this fails, we can look at history to see the state
+            // immediately after the silent hijack but before this opcode.
+            if let Some(entry) = self.history.last() {
+                println!("{:?}", memory.ppu);
+                self.on_mismatch(expected, entry.state);
+                exit(1);
+            }
+        }
+    }
+}
+
+impl DoctorEvaluator {
+    pub fn new(golden_log: &str) -> Self {
         init_logger().unwrap();
-        let headers = Headers::new(&buffer);
-        let file = File::open(args.doctor.golden_log.unwrap()).unwrap();
+        let file = File::open(golden_log).unwrap();
         let reader = BufReader::new(file);
         Self {
             golden_log: reader,
             current_line: 1,
-            memory: Bus::new(buffer),
-            cpu: Cpu::new(),
-            headers,
             history: RingBufferDoctor::new(),
-        }
-    }
-}
-
-const RING_BUFFER_LENGTH: usize = 5;
-
-pub struct RingBufferDoctor {
-    pub entries: [Option<RingBufferDoctorState>; RING_BUFFER_LENGTH],
-    pub head: usize,
-}
-
-impl Default for RingBufferDoctor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RingBufferDoctor {
-    pub fn new() -> Self {
-        // Initialize with None because the buffer is empty at start
-        Self {
-            entries: Default::default(),
-            head: 0,
+            is_failure: None,
         }
     }
 
-    pub fn push(&mut self, instruction: OpcodeInfo, state: CpuSnapshot, line: usize) {
-        self.entries[self.head] = Some(RingBufferDoctorState {
-            instruction,
-            state,
-            line,
-        });
-        // Wrap around using the modulo operator
-        self.head = (self.head + 1) % RING_BUFFER_LENGTH;
-    }
-
-    /// Returns the history from oldest to newest
-    pub fn get_history(&self) -> Vec<&RingBufferDoctorState> {
-        let mut history = Vec::new();
-        for i in 0..RING_BUFFER_LENGTH {
-            // Start from head (oldest) and go around
-            let idx = (self.head + i) % RING_BUFFER_LENGTH;
-            if let Some(ref entry) = self.entries[idx] {
-                history.push(entry);
-            }
-        }
-        history
-    }
-}
-
-pub struct RingBufferDoctorState {
-    pub instruction: OpcodeInfo,
-    pub state: CpuSnapshot,
-    pub line: usize,
-}
-
-impl DoctorSession {
-    pub fn on_empty_golden_log(&mut self) {
-        // Force write to memory to flush the serial port.
-        self.memory.write_byte(0xFF02, 0x81);
-        // Print a new line to avoid overwriting the test results.
-        println!();
-        println!("PASSED! All {} lines matched.", self.current_line);
-        exit(0);
-    }
+    // pub fn on_empty_golden_log(&mut self) {
+    //     // Force write to memory to flush the serial port.
+    //     self.memory.write_byte(0xFF02, 0x81);
+    //     // Print a new line to avoid overwriting the test results.
+    //     println!();
+    //     println!("PASSED! All {} lines matched.", self.current_line);
+    //     exit(0);
+    // }
     pub fn on_mismatch(&self, expected: CpuSnapshot, received: CpuSnapshot) {
         dump_log();
 
@@ -140,10 +126,6 @@ impl DoctorSession {
             }
             println!("       Instr:    {}", entry.instruction);
         }
-
-        println!("{:?}", self.memory.ppu);
-
-        exit(1);
     }
 
     pub fn next_golden_log(&mut self) -> Option<CpuSnapshot> {
@@ -158,53 +140,5 @@ impl DoctorSession {
         // Or we go new game plus.
         let expected = CpuSnapshot::from_string(expected).unwrap();
         Some(expected)
-    }
-
-    pub fn next(&mut self) {
-        // 1. Silent Phase: Process Hijacks or Halts that aren't in the log.
-        // We do this BEFORE taking the snapshot for the next log line.
-        while (self.memory.pending_interrupt() && self.cpu.ime) || self.cpu.halted {
-            trace!("Stepping without matching state");
-            let cycles = self.cpu.step(&mut self.memory);
-            self.memory.tick_components(cycles);
-
-            if self.cpu.halted && !self.memory.pending_interrupt() {
-                continue;
-            }
-            // If an interrupt just hijacked, we are now at 0x0040/0x0050.
-            // We stay in this loop if another hijack is somehow pending,
-            // otherwise we exit to log the first instruction of the ISR.
-        }
-
-        // 2. Logging Phase: Now we are at a state the Doctor log expects.
-        match self.next_golden_log() {
-            Some(expected) => {
-                let received = self.cpu.take_snapshot(&self.memory);
-                let (code, _nr) = self.cpu.get_current_opcode(&self.memory);
-
-                // Push to history BEFORE execution (Pre-execution state)
-                self.history.push(code.clone(), received, self.current_line);
-
-                if expected != received {
-                    // If this fails, we can look at history to see the state
-                    // immediately after the silent hijack but before this opcode.
-                    self.on_mismatch(expected, received);
-                    return;
-                }
-
-                // 3. Execution Phase
-                let cycles = self.cpu.step(&mut self.memory);
-                self.memory.tick_components(cycles);
-
-                self.current_line += 1;
-            }
-            None => self.on_empty_golden_log(),
-        }
-    }
-
-    pub fn main_loop(mut self) {
-        loop {
-            self.next();
-        }
     }
 }

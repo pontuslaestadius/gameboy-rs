@@ -1,6 +1,6 @@
 use log::trace;
 
-use crate::constants::{IE_ADDR, IF_ADDR};
+use crate::constants::{ADDR_TIMER_TIMA, IE_ADDR, IF_ADDR};
 
 pub trait Memory {
     /// Read directly from the memory without allowing the bus to route
@@ -39,12 +39,20 @@ pub trait Memory {
         self.read_byte(IF_ADDR)
     }
 
+    fn read_tima(&self) -> u8 {
+        self.read_byte(ADDR_TIMER_TIMA)
+    }
+
     fn write_ie(&mut self, value: u8) {
         self.write_byte(IE_ADDR, value);
     }
 
     fn write_if(&mut self, value: u8) {
         self.write_byte(IF_ADDR, value);
+    }
+
+    fn write_tima(&mut self, value: u8) {
+        self.write_byte(ADDR_TIMER_TIMA, value);
     }
 
     fn pending_interrupt(&self) -> bool {

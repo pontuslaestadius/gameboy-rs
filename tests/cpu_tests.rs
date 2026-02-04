@@ -335,7 +335,7 @@ fn test_timer_full_lifecycle() {
     }
 
     assert_eq!(
-        bus.read_byte(ADDR_TIMER_TIMA),
+        bus.read_tima(),
         0xAA,
         "TIMA should definitely be 0xAA (TMA) now"
     );
@@ -362,7 +362,7 @@ fn test_timer_interrupt_trigger_robust() {
     }
 
     assert_eq!(
-        bus.read_byte(0xFF05),
+        bus.read_tima(),
         0xFF,
         "After {} cycles, TIMA should be 0xFF",
         total_cycles
@@ -421,7 +421,7 @@ fn test_timer_interrupt_trigger_detailed() {
 
     // AT THIS POINT: TIMA has just hit 0x00.
     // In many implementations, this is the "delay" cycle.
-    let tima_now = bus.read_byte(0xFF05);
+    let tima_now = bus.read_tima();
     let if_now = bus.read_byte(0xFF0F);
 
     println!(

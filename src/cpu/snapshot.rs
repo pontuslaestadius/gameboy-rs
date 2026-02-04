@@ -1,4 +1,9 @@
-use crate::{constants::*, cpu::Cpu, mmu::Memory};
+use crate::{
+    constants::*,
+    cpu::Cpu,
+    input::DummyInput,
+    mmu::{Bus, Memory},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct CpuSnapshot {
@@ -23,7 +28,7 @@ pub struct StateMismatch {
 }
 
 impl CpuSnapshot {
-    pub fn from_cpu(cpu: &Cpu, bus: &impl Memory) -> Self {
+    pub fn from_cpu(cpu: &Cpu, bus: &Bus<DummyInput>) -> Self {
         CpuSnapshot {
             a: cpu.a,
             f: cpu.f,

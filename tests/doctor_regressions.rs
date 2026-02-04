@@ -3,10 +3,9 @@
 
 mod common;
 
-use crate::common::DoctorSession;
+use std::path::Path;
 
-use gameboy_rs::args::{Args, DoctorArgs};
-use gameboy_rs::cartridge;
+use crate::common::{DoctorEvaluator, RuntimeBuilder, RuntimeSession};
 
 // Helper to run the emulator in doctor mode
 fn run_doctor_test(rom_id: &str, rom_name: &str) {
@@ -26,19 +25,12 @@ fn run_doctor_test(rom_id: &str, rom_name: &str) {
         golden_log
     );
 
-    let args = Args {
-        load_rom: rom_path.clone().into(),
-        test: true,
-        log_path: None,
-        doctor: DoctorArgs {
-            golden_log: Some(golden_log.clone().into()),
-        },
-    };
+    let mut runtime: RuntimeSession<DoctorEvaluator> = RuntimeBuilder::new()
+        .with_rom_path(Path::new(&rom_path))
+        .with_evaluator(DoctorEvaluator::new(&golden_log))
+        .build();
 
-    let buffer = cartridge::load_rom(&args.load_rom).unwrap();
-
-    let session = DoctorSession::new(buffer, args);
-    session.main_loop();
+    runtime.run_to_completition();
 }
 
 #[test]

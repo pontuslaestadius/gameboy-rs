@@ -6,8 +6,8 @@ mod register;
 mod snapshot;
 mod step_flow_controller_enum;
 
-use crate::mmu::Memory;
 use crate::*;
+use crate::{input::DummyInput, mmu::Memory};
 pub use alu::{Alu, AluOutput};
 use log::{debug, info, trace};
 pub use snapshot::CpuSnapshot;
@@ -181,7 +181,7 @@ impl Cpu {
 
     /// Read the current opcode without mutating the current state.
     /// Returns the OpcodeInfo, and the number of bytes to move the pc forward)
-    pub fn get_current_opcode(&self, bus: &impl Memory) -> (OpcodeInfo, u8) {
+    pub fn get_current_opcode(&self, bus: &Bus<DummyInput>) -> (OpcodeInfo, u8) {
         let opcode = bus.read_byte(self.pc);
 
         if opcode == CB_PREFIX_OPCODE_BYTE {
@@ -586,7 +586,7 @@ impl Cpu {
         }
     }
 
-    pub fn take_snapshot(&self, bus: &impl Memory) -> CpuSnapshot {
+    pub fn take_snapshot(&self, bus: &Bus<DummyInput>) -> CpuSnapshot {
         CpuSnapshot::from_cpu(self, bus)
     }
 }
