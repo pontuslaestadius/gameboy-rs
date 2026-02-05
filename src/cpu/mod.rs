@@ -9,7 +9,7 @@ mod step_flow_controller_enum;
 use crate::*;
 use crate::{input::DummyInput, mmu::Memory};
 pub use alu::{Alu, AluOutput};
-use log::{debug, info, trace};
+use log::{debug, trace};
 pub use snapshot::CpuSnapshot;
 use std::fmt;
 pub use step_flow_controller_enum::StepFlowController;
@@ -161,6 +161,10 @@ impl Cpu {
     }
     pub fn set_z(&mut self, value: bool) {
         self.set_flag(FLAG_Z, value);
+    }
+
+    pub fn get_z(&mut self) -> bool {
+        self.get_flag(FLAG_Z)
     }
 
     pub fn get_flag(&self, flag: u8) -> bool {

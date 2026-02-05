@@ -431,12 +431,8 @@ impl InstructionSet for Cpu {
 
     fn reti(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         // 1. Pop the PC from the stack (identical to RET)
-        let low = bus.read_byte(self.sp) as u16;
-        self.sp = self.sp.wrapping_add(1);
-        let high = bus.read_byte(self.sp) as u16;
-        self.sp = self.sp.wrapping_add(1);
-
-        self.pc = (high << 8) | low;
+        self.pc = bus.read_u16(self.sp);
+        self.sp = self.sp.wrapping_add(2);
 
         // 2. Immediately enable interrupts
         self.ime = true;

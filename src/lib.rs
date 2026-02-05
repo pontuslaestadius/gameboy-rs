@@ -1,3 +1,4 @@
+pub mod apu;
 pub mod args;
 pub mod cartridge;
 pub mod constants;

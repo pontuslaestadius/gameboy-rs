@@ -40,7 +40,9 @@ impl EvaluationSpec for SerialEvaluator {
     fn report(&self, _cpu: &Cpu, bus: &Bus<DummyInput>) {
         let output = String::from_utf8_lossy(&bus.serial_buffer);
         if !output.contains("Passed") {
-            println!("output: {}", output);
+            if !output.is_empty() {
+                println!("output: {}", output);
+            }
             exit(1);
         }
         exit(0);

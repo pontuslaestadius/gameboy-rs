@@ -24,6 +24,7 @@ use log::{debug, info, trace};
 // use std::io::Write;
 
 use crate::{
+    apu::Apu,
     constants::*,
     input::InputDevice,
     mmu::memory_trait::Memory,
@@ -48,6 +49,7 @@ pub struct Bus<I: InputDevice + Default> {
 
     pub joypad_sel: u8,
     pub serial_buffer: Vec<u8>,
+    pub apu: Apu,
 }
 
 impl<I: InputDevice + Default> Bus<I> {
@@ -75,6 +77,7 @@ impl<I: InputDevice + Default> Bus<I> {
             joypad_sel: 0xFF,
             input: I::default(),
             serial_buffer: Vec::new(),
+            apu: Apu::new(),
         }
     }
     fn dma_transfer(&mut self, val: u8) {
@@ -190,6 +193,9 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
                 trace!("read [{:#06X}] -> {:#04X} (IF)", addr, b);
                 b
             }
+
+            // Audio
+            0xFF10..=0xFF3F => self.apu.read_byte(addr),
 
             // Default
             _ => {
@@ -359,6 +365,9 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
                 trace!("write [0x{:04X}] <- 0x{:02X} (IE REG)", addr, val);
                 self.data[addr as usize] = val;
             }
+
+            // Audio
+            0xFF10..=0xFF3F => self.apu.write_byte(addr, val),
 
             _ => {
                 trace!("write [0x{:04X}] <- 0x{:02X} (GENERAL/IO)", addr, val);

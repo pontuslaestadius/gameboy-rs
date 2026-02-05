@@ -1,11 +1,9 @@
-use gameboy_rs::constants::{
-    ADDR_SYS_IE, ADDR_SYS_IF, ADDR_TIMER_TAC, ADDR_TIMER_TIMA, ADDR_TIMER_TMA, ADDR_VEC_VBLANK,
-};
+use gameboy_rs::constants::{ADDR_TIMER_TAC, ADDR_TIMER_TIMA, ADDR_TIMER_TMA, ADDR_VEC_VBLANK};
 use gameboy_rs::cpu::{Cpu, StepFlowController};
 use gameboy_rs::input::DummyInput;
 use gameboy_rs::mmu::Bus;
 use gameboy_rs::mmu::Memory;
-use gameboy_rs::opcodes::{Condition, FlagSpec, InstructionSet, Mnemonic, OPCODES, Target};
+use gameboy_rs::opcodes::{Condition, InstructionSet, Mnemonic, OPCODES, Target};
 use gameboy_rs::ppu::Ppu;
 
 const NOP: u8 = 0x00;
@@ -13,6 +11,16 @@ const HALT: u8 = 0x76;
 const INC_A: u8 = 0x3C;
 const RET_NZ: u8 = 0xC0;
 const JP_NZ: u8 = 0xC2;
+const LDH_A_N: u8 = 0xF0;
+const CB_PREFIX: u8 = 0xCB;
+const BIT_0_HL: u8 = 0x46;
+const LD_NN_A: u8 = 0xEA;
+const RES_0_HL: u8 = 0x86; // This resets bit 0 of the value at (HL)
+const PUSH_BC: u8 = 0xC5;
+const POP_BC: u8 = 0xC1;
+const JR_NZ: u8 = 0x20;
+const LD_A_NN: u8 = 0xFA;
+const JR: u8 = 0x18;
 
 fn bootstrap() -> (Cpu, Bus<DummyInput>) {
     // RUST_LOG=trace cargo test cpu::test::test_ei_delay_timing -- --nocapture
@@ -1057,4 +1065,186 @@ fn test_jp_nz_cycles() {
         "JP NZ (taken) should be 16 T-cycles (4 M-cycles)"
     );
     assert_eq!(cpu.pc, 0x1234, "PC should have jumped to 0x1234");
+}
+
+#[test]
+fn test_ldh_a_n_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // LDH A, (0x0F) -> Reads from 0xFF0F (IF register)
+    cpu.pc = 0xC000;
+    bus.force_write_bytes(0xC000, &[LDH_A_N, 0x0F]);
+    bus.force_write_byte(0xFF0F, 0x55);
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(
+        cycles, 12,
+        "LDH A, (n) should take 12 T-cycles (3 M-cycles)"
+    );
+    assert_eq!(cpu.a, 0x55);
+}
+
+#[test]
+fn test_bit_hl_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    cpu.pc = 0xC000;
+    // Set HL to 0xD000
+    cpu.h = 0xD0;
+    cpu.l = 0x00;
+
+    bus.force_write_bytes(0xC000, &[CB_PREFIX, BIT_0_HL]);
+    bus.force_write_byte(0xD000, 0x01); // Bit 0 is 1
+
+    let cycles = cpu.step(&mut bus);
+
+    // Fails if you return 8. Correct value is 12 (3 M-cycles).
+    assert_eq!(cycles, 12, "BIT b, (HL) should take 12 T-cycles");
+    assert_eq!(cpu.get_z(), false, "Bit 0 was 1, Zero flag should be false");
+}
+
+#[test]
+fn test_ld_a_nn_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // Setup: LD A, (0xD005)
+    cpu.pc = 0xC000;
+    bus.force_write_bytes(0xC000, &[LD_A_NN, 0x05, 0xD0]);
+    bus.force_write_byte(0xD005, 0xAB);
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(
+        cycles, 16,
+        "LD A, (nn) should take 16 T-cycles (4 M-cycles)"
+    );
+    assert_eq!(cpu.a, 0xAB, "A should contain the value from memory");
+}
+
+#[test]
+fn test_ld_nn_a_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // Setup: LD (0xD005), A
+    cpu.pc = 0xC000;
+    cpu.a = 0x42;
+    bus.force_write_bytes(0xC000, &[LD_NN_A, 0x05, 0xD0]);
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(
+        cycles, 16,
+        "LD (nn), A should take 16 T-cycles (4 M-cycles)"
+    );
+    assert_eq!(
+        bus.read_byte(0xD005),
+        0x42,
+        "Memory should contain the value from A"
+    );
+}
+
+#[test]
+fn test_res_hl_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    cpu.pc = 0xC000;
+    cpu.h = 0xD0;
+    cpu.l = 0x00;
+
+    // The value at (HL) is 0xFF (all bits set)
+    bus.force_write_byte(0xD000, 0xFF);
+    bus.force_write_bytes(0xC000, &[CB_PREFIX, RES_0_HL]);
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(
+        cycles, 16,
+        "RES b, (HL) should take 16 T-cycles (4 M-cycles)"
+    );
+    assert_eq!(
+        bus.read_byte(0xD000),
+        0xFE,
+        "Bit 0 should be cleared (0xFF -> 0xFE)"
+    );
+}
+
+#[test]
+fn test_push_bc_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xFFFE;
+    cpu.b = 0x12;
+    cpu.c = 0x34;
+    bus.force_write_bytes(0xC000, &[PUSH_BC]);
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, 16, "PUSH rr should take 16 T-cycles");
+    assert_eq!(cpu.sp, 0xFFFC, "SP should decrement twice");
+    assert_eq!(bus.read_byte(0xFFFD), 0x12, "High byte should be at SP+1");
+    assert_eq!(bus.read_byte(0xFFFC), 0x34, "Low byte should be at SP");
+}
+
+#[test]
+fn test_pop_bc_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    cpu.pc = 0xC000;
+    cpu.sp = 0xFFFC;
+    // Pre-fill the stack with values
+    bus.force_write_bytes(0xFFFC, &[0x78, 0x56]); // Low, High
+    bus.force_write_bytes(0xC000, &[POP_BC]);
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(cycles, 12, "POP rr should take 12 T-cycles");
+    assert_eq!(cpu.sp, 0xFFFE, "SP should increment twice");
+    assert_eq!(cpu.b, 0x56, "B should receive High byte");
+    assert_eq!(cpu.c, 0x78, "C should receive Low byte");
+}
+
+#[test]
+fn test_jr_nz_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // JR NZ, 0x05 (Jump forward 5 bytes)
+    // Instruction is [0x20, 0x05] at 0xC000
+    bus.force_write_bytes(0xC000, &[JR_NZ, 0x05]);
+
+    // --- Scenario 1: Condition NOT Taken (Z=1) ---
+    cpu.pc = 0xC000;
+    cpu.set_z(true); // NZ is false
+
+    let cycles = cpu.step(&mut bus);
+    assert_eq!(cycles, 8, "JR NZ (not taken) should take 8 T-cycles");
+    assert_eq!(cpu.pc, 0xC002, "PC should be at next instruction");
+
+    // --- Scenario 2: Condition TAKEN (Z=0) ---
+    cpu.pc = 0xC000;
+    cpu.set_z(false); // NZ is true
+
+    let cycles = cpu.step(&mut bus);
+    assert_eq!(cycles, 12, "JR NZ (taken) should take 12 T-cycles");
+    // Calculation: 0xC000 + 2 (instr length) + 5 (offset) = 0xC007
+    assert_eq!(cpu.pc, 0xC007, "PC should have jumped forward by 5 bytes");
+}
+
+#[test]
+fn test_jr_unconditional_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // JR -2 (Infinite loop pattern: Jump back to start of instruction)
+    // 0xC000: 18 FE (FE is -2 in two's complement)
+    cpu.pc = 0xC000;
+    bus.force_write_bytes(0xC000, &[JR, 0xFE]);
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(
+        cycles, 12,
+        "Unconditional JR should always take 12 T-cycles"
+    );
+    assert_eq!(cpu.pc, 0xC000, "PC should have jumped back to 0xC000");
 }
