@@ -17,7 +17,8 @@ fn run_test(rom_path: &str) {
     runtime.run_to_completition();
 }
 
-#[test]
-fn mem_timing() {
-    run_test("tests/tools/gb-test-roms/cpu_instrs/individual/01-special.gb");
-}
+// #[test]
+// fn mem_timing() {
+//     run_test("tests/tools/gb-test-roms/cpu_instrs/individual/01-special.gb");
+// }
+include!(concat!(env!("OUT_DIR"), "/generated_rom_tests.rs"));

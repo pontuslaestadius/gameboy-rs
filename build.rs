@@ -26,6 +26,35 @@ struct RawOperand {
     immediate: bool,
 }
 
+fn generate_rom_tests() {
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let destination = Path::new(&out_dir).join("generated_rom_tests.rs");
+
+    let mut test_code = String::new();
+    let roms = glob::glob("tests/tools/**/*.gb").expect("Failed to read glob pattern");
+
+    for entry in roms.filter_map(Result::ok) {
+        let path = entry.to_str().unwrap();
+        let name = entry
+            .to_str()
+            .unwrap()
+            .replace("/", "_")
+            .replace(")", "_")
+            .replace("(", "_")
+            .replace(",", "_")
+            .replace(" ", "_")
+            .replace("-", "_")
+            .replace(".", "_");
+
+        test_code.push_str(&format!(
+            "#[test] fn test_rom_{}() {{ run_test(r#\"{}\"#); }}\n",
+            name, path
+        ));
+    }
+
+    fs::write(destination, test_code).unwrap();
+}
+
 fn map_target(operand: &RawOperand, op_code: u8) -> String {
     // 1. Handle specialized Bit targets first
     if let Ok(bit) = operand.name.parse::<u8>() {
@@ -254,6 +283,8 @@ fn main() {
     code.push_str(&produce_dispatcher_fn(&unique_mnemonics));
 
     fs::write(&dest_path, code).unwrap();
+
+    generate_rom_tests();
     println!("wrote generated opcodes to: {:?}", dest_path);
     println!("cargo:rerun-if-changed=src/opcodes/data/opcodes.json");
     println!("cargo:rerun-if-changed=src/instruction.rs");

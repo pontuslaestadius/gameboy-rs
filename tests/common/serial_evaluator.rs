@@ -5,15 +5,17 @@ use gameboy_rs::{cpu::Cpu, input::DummyInput, mmu::Bus};
 use crate::common::EvaluationSpec;
 
 pub struct SerialEvaluator {
-    pub max_cycles: u64,
-    pub cycles: u64,
+    max_cycles: u64,
+    cycles: u64,
 }
 
 impl SerialEvaluator {
     pub fn new() -> Self {
         Self {
             cycles: 0,
-            max_cycles: 100_000_000,
+            // For debug: this may take ~10s.
+            // For release: ~0.7s before timeout.
+            max_cycles: 10_000_000,
         }
     }
 }
@@ -23,7 +25,7 @@ impl EvaluationSpec for SerialEvaluator {
         self.cycles += 1;
         // We only check for success/fail every few thousand cycles
         // to avoid expensive string searching on every single opcode.
-        if self.cycles % 1000 == 0 {
+        if self.cycles % 10_000 == 0 {
             let output = String::from_utf8_lossy(&bus.serial_buffer);
             if output.contains("Passed") {
                 return false;
@@ -38,6 +40,7 @@ impl EvaluationSpec for SerialEvaluator {
     fn report(&self, _cpu: &Cpu, bus: &Bus<DummyInput>) {
         let output = String::from_utf8_lossy(&bus.serial_buffer);
         if !output.contains("Passed") {
+            println!("output: {}", output);
             exit(1);
         }
         exit(0);

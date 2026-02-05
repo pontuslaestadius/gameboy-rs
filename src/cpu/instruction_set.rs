@@ -92,7 +92,7 @@ impl InstructionSet for Cpu {
             // Logic for "Jump Taken" cycles would go here if needed
         }
 
-        instruction.result()
+        InstructionResult::branching(&instruction, should_jump)
     }
 
     fn cp(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
@@ -338,7 +338,7 @@ impl InstructionSet for Cpu {
         let high = bus.read_byte(self.pc + 1) as u16;
         let target_addr = (high << 8) | low;
 
-        if self.check_condition(cond_target) {
+        let should_return = if self.check_condition(cond_target) {
             // Increment PC past the immediate address before pushing
             let return_addr = self.pc + 2;
 
@@ -350,12 +350,14 @@ impl InstructionSet for Cpu {
 
             // Conditional CALL takes more cycles if it jumps (usually 24 vs 12)
             // Ensure your result reflects the "Taken" cycles if your system supports it.
+            true
         } else {
             // If condition fails, we just skip the address bytes
             self.pc = self.pc.wrapping_add(2);
-        }
+            false
+        };
 
-        instruction.result()
+        InstructionResult::branching(&instruction, should_return)
     }
     fn ret(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         // 1. Check if this is a conditional return
@@ -369,13 +371,9 @@ impl InstructionSet for Cpu {
 
         if should_return {
             // 2. Pop the address from the stack
-            let low = bus.read_byte(self.sp) as u16;
-            self.sp = self.sp.wrapping_add(1);
-            let high = bus.read_byte(self.sp) as u16;
-            self.sp = self.sp.wrapping_add(1);
-
             // 3. Jump to the return address
-            self.pc = (high << 8) | low;
+            self.pc = bus.read_u16(self.sp);
+            self.sp = self.sp.wrapping_add(2);
 
             // Conditional RET usually takes 20 cycles if taken, 8 if not.
             // Unconditional RET is always 16.
@@ -383,7 +381,8 @@ impl InstructionSet for Cpu {
 
         // Note: If should_return is false, the PC remains at the
         // instruction after the RET (handled by your central step loop).
-        instruction.result()
+        // RET cycles are 20, 8. So we have to flip the conditional.
+        InstructionResult::branching(&instruction, should_return)
     }
     fn inc(&mut self, instruction: OpcodeInfo, bus: &mut impl Memory) -> InstructionResult {
         let (target, _) = instruction.operands[0];

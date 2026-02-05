@@ -220,7 +220,6 @@ impl Cpu {
             // We want to fall through and execute the instruction at 0x0050 now.
             return n;
         }
-        // println!("self.pc: {}", self.pc);
 
         self.update_ime_delay();
 
@@ -313,14 +312,13 @@ impl Cpu {
     //     let alu = AluOutput::alu_8bit_dec(value);
     //     (alu.value, alu.z, alu.n, alu.h)
     // }
-    fn check_condition(&self, target: Target) -> bool {
+    pub fn check_condition(&self, target: Target) -> bool {
         match target {
             Target::Condition(cond) => match cond {
                 Condition::NotZero => (self.f & FLAG_Z) == 0,
                 Condition::Zero => (self.f & FLAG_Z) != 0,
                 Condition::NotCarry => (self.f & FLAG_C) == 0,
                 Condition::Carry => (self.f & FLAG_C) != 0,
-                // _ => true, // Always true for unconditional
             },
             _ => true, // Not a conditional target
         }

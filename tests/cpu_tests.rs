@@ -5,12 +5,14 @@ use gameboy_rs::cpu::{Cpu, StepFlowController};
 use gameboy_rs::input::DummyInput;
 use gameboy_rs::mmu::Bus;
 use gameboy_rs::mmu::Memory;
-use gameboy_rs::opcodes::{InstructionSet, Mnemonic, OPCODES};
+use gameboy_rs::opcodes::{Condition, FlagSpec, InstructionSet, Mnemonic, OPCODES, Target};
 use gameboy_rs::ppu::Ppu;
 
 const NOP: u8 = 0x00;
 const HALT: u8 = 0x76;
 const INC_A: u8 = 0x3C;
+const RET_NZ: u8 = 0xC0;
+const JP_NZ: u8 = 0xC2;
 
 fn bootstrap() -> (Cpu, Bus<DummyInput>) {
     // RUST_LOG=trace cargo test cpu::test::test_ei_delay_timing -- --nocapture
@@ -973,4 +975,86 @@ fn test_vblank_interrupt_trigger() {
         cpu.pc, ADDR_VEC_VBLANK,
         "CPU should have jumped to V-Blank interrupt vector"
     );
+}
+
+#[test]
+fn test_ret_nz_cycles() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // 1. Setup Stack and Code
+    // We'll place the return address 0x1234 at the top of the stack (0xFFFE)
+    // and the instruction at 0xC000
+    bus.force_write_bytes(0xFFFE, &[0x34, 0x12]);
+    bus.force_write_bytes(0xC000, &[RET_NZ, RET_NZ]);
+
+    // --- Scenario 1: Condition NOT Taken (Z=1) ---
+    cpu.pc = 0xC000;
+    cpu.sp = 0xFFFE;
+    cpu.set_z(true); // NZ is false
+    assert!(
+        !cpu.check_condition(Target::Condition(Condition::NotZero)),
+        "Not Zero conditional should be false."
+    );
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(
+        cycles, 8,
+        "RET NZ (not taken) should be 8 T-cycles (2 M-cycles)"
+    );
+    assert_eq!(cpu.pc, 0xC001, "PC should point to the next byte");
+    assert_eq!(cpu.sp, 0xFFFE, "Stack pointer should not move");
+
+    // --- Scenario 2: Condition TAKEN (Z=0) ---
+    cpu.sp = 0xFFFE;
+    cpu.set_z(false); // clear -> NZ is true
+    assert!(
+        cpu.check_condition(Target::Condition(Condition::NotZero)),
+        "Not Zero conditional should be true"
+    );
+
+    let cycles = cpu.step(&mut bus);
+
+    assert_eq!(
+        cycles, 20,
+        "RET NZ (taken) should be 20 T-cycles (5 M-cycles)"
+    );
+    assert_eq!(cpu.pc, 0x1234, "PC should have popped 0x1234 from stack");
+    assert_eq!(
+        cpu.sp, 0x0000,
+        "SP should have wrapped to 0x0000 after popping 2 bytes"
+    );
+}
+
+#[test]
+fn test_jp_nz_cycles() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // Jump to 0x1234
+    bus.force_write_bytes(0xC000, &[JP_NZ, 0x34, 0x12]);
+
+    // --- Scenario 1: Condition NOT Taken (Z=1) ---
+    cpu.pc = 0xC000;
+    cpu.set_z(true);
+
+    let cycles = cpu.step(&mut bus);
+    assert_eq!(
+        cycles, 12,
+        "JP NZ (not taken) should be 12 T-cycles (3 M-cycles)"
+    );
+    assert_eq!(
+        cpu.pc, 0xC003,
+        "PC should point to the byte after the 3-byte instruction"
+    );
+
+    // --- Scenario 2: Condition TAKEN (Z=0) ---
+    cpu.pc = 0xC000;
+    cpu.set_z(false);
+
+    let cycles = cpu.step(&mut bus);
+    assert_eq!(
+        cycles, 16,
+        "JP NZ (taken) should be 16 T-cycles (4 M-cycles)"
+    );
+    assert_eq!(cpu.pc, 0x1234, "PC should have jumped to 0x1234");
 }
