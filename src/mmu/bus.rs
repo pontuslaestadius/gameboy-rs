@@ -49,6 +49,7 @@ pub struct Bus<I: InputDevice + Default> {
 
     pub joypad_sel: u8,
     pub serial_buffer: Vec<u8>,
+    serial_buffer_dirty: bool,
     pub apu: Apu,
 }
 
@@ -77,7 +78,17 @@ impl<I: InputDevice + Default> Bus<I> {
             joypad_sel: 0xFF,
             input: I::default(),
             serial_buffer: Vec::new(),
+            serial_buffer_dirty: false,
             apu: Apu::new(),
+        }
+    }
+
+    // Also marks the bus as not-dirty.
+    pub fn read_if_dirty_serial_buffer(&mut self) -> Option<&Vec<u8>> {
+        if self.serial_buffer_dirty {
+            Some(&self.serial_buffer)
+        } else {
+            None
         }
     }
     fn dma_transfer(&mut self, val: u8) {
@@ -105,8 +116,6 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
     }
     fn read_byte(&self, addr: u16) -> u8 {
         let val = match addr {
-            // TODO: We just need to do this reliably somehow...
-            0xFF44 => 0x90,
             // ROM: 0x0000..=0x7FFF
             ADDR_MEM_ROM_START..=ADDR_MEM_ROM_END => {
                 let b = self.data[addr as usize];
@@ -237,7 +246,7 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
         }
 
         // You would also tick your PPU (Graphics) here later
-        if self.ppu.tick(cycles) {
+        if self.ppu.tick(cycles.into()) {
             trace!("tick_components: ppu triggered V-Blank");
             // Manually trigger the V-Blank bit in the IF register (0xFF0F)
             let current_if = self.read_if();
@@ -307,6 +316,7 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
                     // Transfer requested! Grab the byte from SB.
                     let c = self.data[ADDR_SYS_SB as usize];
                     self.serial_buffer.push(c);
+                    self.serial_buffer_dirty = true;
                     // This comes with the defect of printing a new line
                     // between each character. We'll just pretend it's
                     // intentional,as it's Japanese hardware.

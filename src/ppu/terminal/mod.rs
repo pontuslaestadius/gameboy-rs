@@ -1,15 +1,18 @@
 use crate::ppu::Ppu;
 
+const DISPLAY_HEIGHT: usize = 144;
+const DISPLAY_WIDTH: usize = 160;
+
 pub fn display_frame(ppu: &dyn Ppu) {
     let buffer = ppu.get_frame_buffer();
-    let mut output = String::with_capacity(160 * 144);
+    let mut output = String::with_capacity(DISPLAY_WIDTH * DISPLAY_HEIGHT);
 
     // Move cursor to top-left (don't clear screen to avoid flickering)
     output.push_str("\x1B[H");
 
     // We step by 2 on Y because one character represents two vertical pixels
-    for y in (0..144).step_by(2) {
-        for x in 0..160 {
+    for y in (0..DISPLAY_HEIGHT).step_by(2) {
+        for x in 0..DISPLAY_WIDTH {
             let top_pixel = buffer[y * 160 + x];
             let bottom_pixel = buffer[(y + 1) * 160 + x];
 

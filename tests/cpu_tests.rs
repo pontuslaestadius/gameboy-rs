@@ -1,4 +1,4 @@
-use gameboy_rs::constants::{ADDR_TIMER_TAC, ADDR_TIMER_TIMA, ADDR_TIMER_TMA, ADDR_VEC_VBLANK};
+use gameboy_rs::constants::*;
 use gameboy_rs::cpu::{Cpu, StepFlowController};
 use gameboy_rs::input::DummyInput;
 use gameboy_rs::mmu::Bus;
@@ -1247,4 +1247,40 @@ fn test_jr_unconditional_timing() {
         "Unconditional JR should always take 12 T-cycles"
     );
     assert_eq!(cpu.pc, 0xC000, "PC should have jumped back to 0xC000");
+}
+
+#[test]
+fn test_lcd_on_timing() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // 1. Ensure LCD is OFF
+    bus.write_byte(ADDR_PPU_LCDC, 0x00);
+
+    // 2. Turn LCD ON
+    bus.write_byte(ADDR_PPU_LCDC, 0x80);
+    assert!(bus.ppu.lcd_enabled());
+
+    // 3. Check status immediately (Register STAT 0xFF41)
+    let stat = bus.read_byte(ADDR_PPU_STAT);
+    // Mode should be 2 (OAM Search) -> Bits 0-1 of STAT should be 10 (binary)
+    assert_eq!(
+        stat & 0x03,
+        2,
+        "LCD should start in Mode 2 immediately upon enabling"
+    );
+
+    // 4. Run exactly 80 cycles
+    for i in 0..20 {
+        // 20 M-cycles = 80 T-cycles
+        let cycles = cpu.step(&mut bus);
+        bus.tick_components(cycles);
+        assert_eq!(bus.ppu.dot_counter, (i + 1) * 4);
+    }
+
+    let stat_after = bus.read_byte(0xFF41);
+    assert_eq!(
+        stat_after & 0x03,
+        3,
+        "After 80 cycles, LCD should have transitioned to Mode 3"
+    );
 }

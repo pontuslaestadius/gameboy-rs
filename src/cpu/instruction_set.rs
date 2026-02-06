@@ -621,7 +621,6 @@ impl InstructionSet for Cpu {
         let res = (val << 1) | bit7;
 
         self.write_target(target, OperandValue::U8(res), bus);
-        // self.set_flags_rotate(res, bit7 == 1, false); // false = CB-version
         instruction.result_with_flags(res == 0, false, false, bit7 == 1)
     }
 
@@ -633,7 +632,6 @@ impl InstructionSet for Cpu {
         let res = (val << 1) | old_c;
 
         self.write_target(target, OperandValue::U8(res), bus);
-        // self.set_flags_rotate(res, new_c == 1, false);
         instruction.result_with_flags(res == 0, false, false, new_c == 1)
     }
     fn stop(&mut self, instruction: OpcodeInfo, _bus: &mut impl Memory) -> InstructionResult {

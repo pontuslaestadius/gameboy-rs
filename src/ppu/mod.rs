@@ -1,6 +1,7 @@
 pub mod terminal;
 
 use core::fmt;
+use std::hash::DefaultHasher;
 
 use log::{trace, warn};
 
@@ -9,7 +10,7 @@ const OAM_SIZE: usize = 0xA0; // 160 bytes.
 pub trait Ppu {
     /// Advances the internal state machine by a number of T-cycles.
     /// Returns true if a V-Blank interrupt should be triggered.
-    fn tick(&mut self, cycles: u8) -> bool;
+    fn tick(&mut self, cycles: u32) -> bool;
 
     /// Read from PPU-owned memory (VRAM: 0x8000-0x9FFF, OAM: 0xFE00-0xFE9F, Registers: 0xFF40-0xFF4B)
     fn read_byte(&self, addr: u16) -> u8;
@@ -70,6 +71,42 @@ impl DummyPpu {
             obp0: 0,
             obp1: 0,
         }
+    }
+
+    pub fn lcd_enabled(&self) -> bool {
+        // Bit 7 controls the LCD power
+        (self.lcdc & 0x80) != 0
+    }
+
+    pub fn request_stat_interrupt(&mut self) {
+        todo!("");
+    }
+
+    fn update_lyc(&mut self) {
+        // 1. Check if LY matches LYC
+        if self.ly == self.lyc {
+            // 2. Set Bit 2 of STAT (The LYC == LY flag)
+            self.stat |= 0x04;
+
+            // 3. Trigger Interrupt if Bit 6 of STAT (LYC Interrupt Source) is enabled
+            if (self.stat & 0x40) != 0 {
+                self.request_stat_interrupt();
+            }
+        } else {
+            // 4. Clear Bit 2 if they don't match
+            self.stat &= !0x04;
+        }
+    }
+
+    pub fn set_mode(&mut self, mode: u8) {
+        // 1. Clear the old mode (bits 0 and 1)
+        // 2. Set the new mode
+        self.stat = (self.stat & !0x03) | (mode & 0x03);
+
+        // 3. Handle STAT Interrupts
+        // Most developers check for interrupts here.
+        // Example: If mode is 0 (H-Blank) and bit 3 of STAT is 1,
+        // you would trigger the LCD_STAT interrupt.
     }
 
     fn render_line(&mut self) {
@@ -268,33 +305,37 @@ impl Ppu for DummyPpu {
     fn get_frame_buffer(&self) -> &[u8; 23040] {
         &self.frame_buffer
     }
-    fn tick(&mut self, cycles: u8) -> bool {
-        self.dot_counter += cycles as u32;
+    fn tick(&mut self, cycles: u32) -> bool {
+        if !self.lcd_enabled() {
+            return false;
+        }
+
+        self.dot_counter += cycles;
 
         if self.dot_counter >= 456 {
             self.dot_counter -= 456;
-
-            // Only render if we are on a visible line (0-143)
-            if self.ly < 144 {
-                self.render_line();
-                self.render_sprites();
-            }
-
             self.ly = (self.ly + 1) % 154;
 
-            if self.ly == 144 {
-                trace!(
-                    "ppu: tick: {}, counter: {}, ly: {}!",
-                    cycles, self.dot_counter, self.ly
-                );
-                return true;
-            }
+            // Check for LY == LYC and update STAT bit 2 here
+            self.update_lyc();
         }
-        trace!(
-            "ppu: tick: {}, counter: {}, ly: {}",
-            cycles, self.dot_counter, self.ly
-        );
-        false
+
+        // Determine mode based on current LY and dot_counter
+        let new_mode = if self.ly >= 144 {
+            1 // V-Blank
+        } else {
+            match self.dot_counter {
+                0..=79 => 2,   // OAM Search
+                80..=251 => 3, // Data Transfer
+                _ => 0,        // H-Blank
+            }
+        };
+
+        // Only call set_mode if the mode actually changed
+        if (self.stat & 0x03) != new_mode {
+            self.set_mode(new_mode);
+        }
+        new_mode == 1
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
@@ -322,8 +363,34 @@ impl Ppu for DummyPpu {
         match addr {
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize] = val,
             0xFE00..=0xFE9F => self.oam[(addr - 0xFE00) as usize] = val,
-            0xFF40 => self.lcdc = val,
-            0xFF41 => self.stat = val,
+            0xFF40 => {
+                let was_on = (self.lcdc & 0x80) != 0;
+                let is_on = (val & 0x80) != 0;
+
+                self.lcdc = val;
+
+                if !was_on && is_on {
+                    // LCD turned ON: Synchronization Point
+                    self.dot_counter = 0;
+                    self.ly = 0;
+
+                    // Immediately enter Mode 2 (OAM Search)
+                    // Set bits 0-1 of STAT to 0b10 (2)
+                    self.stat = (self.stat & !0x03) | 0x02;
+                } else if was_on && !is_on {
+                    // LCD turned OFF: Reset state
+                    self.dot_counter = 0;
+                    self.ly = 0;
+                    // Mode 0 (H-Blank) is the standard state when OFF
+                    self.stat &= !0x03;
+                }
+            }
+            0xFF41 => {
+                // Only bits 3-6 are writable (Interrupt selection bits)
+                // Bits 0-2 are read-only status; Bit 7 is unused (always 1)
+                let mask = 0b0111_1000;
+                self.stat = (val & mask) | (self.stat & !mask) | 0x80;
+            }
             0xFF42 => self.scy = val,
             0xFF43 => self.scx = val,
             0xFF44 => self.ly = 0, // Writing to LY usually resets it on real hardware

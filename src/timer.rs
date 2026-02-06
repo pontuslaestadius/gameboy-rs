@@ -87,6 +87,7 @@ impl Timer {
         interrupt_triggered
     }
     pub fn tick(&mut self, cycles: u8) -> bool {
+        // println!("timer tick: {}", cycles);
         let mut interrupt_requested = false;
 
         // Game Boy ticks in T-cycles (4MHz)

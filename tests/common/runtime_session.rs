@@ -12,7 +12,7 @@ pub struct RuntimeSession<E: EvaluationSpec> {
 pub trait EvaluationSpec {
     /// Called after every CPU step.
     /// Returns true to continue, false to stop (e.g., mismatch or success).
-    fn evaluate(&mut self, _cpu: &Cpu, _memory: &Bus<DummyInput>) -> bool {
+    fn evaluate(&mut self, _cpu: &Cpu, _memory: &mut Bus<DummyInput>) -> bool {
         true
     }
 
@@ -69,6 +69,6 @@ impl<E: EvaluationSpec> RuntimeSession<E> {
         self.memory.tick_components(cycles);
 
         // 4. Post-Instruction Phase: Final checks
-        self.evaluator.evaluate(&self.cpu, &self.memory)
+        self.evaluator.evaluate(&self.cpu, &mut self.memory)
     }
 }
