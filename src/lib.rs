@@ -16,6 +16,7 @@ use crate::input::RotaryInput;
 use crate::ppu::terminal::display_frame;
 
 use constants::*;
+use log::Level;
 use mmu::{Bus, Memory};
 use opcodes::*;
 use std::io;
@@ -25,7 +26,7 @@ use std::path::PathBuf;
 use std::io::Write;
 use std::time::Instant;
 
-pub fn setup_logging(log_path: &Option<PathBuf>) -> Result<(), io::Error> {
+pub fn setup_logging(log_path: &Option<PathBuf>, level: Option<Level>) -> Result<(), io::Error> {
     let env = env_logger::Env::default().default_filter_or("info");
     let mut builder = env_logger::Builder::from_env(env);
     // 1. Set the format (Crucial for Gameboy Doctor)
@@ -45,7 +46,7 @@ pub fn setup_logging(log_path: &Option<PathBuf>) -> Result<(), io::Error> {
 /// Executes the given file and loads it in as a rom.
 /// This function is expected to run while the emulation is still going.
 pub fn rom_exec(args: args::Args) -> Result<(), io::Error> {
-    setup_logging(&args.log_path)?;
+    setup_logging(&args.log_path, args.level)?;
     match cartridge::load_rom(&args.load_rom) {
         Ok(buffer) => {
             // Starts the main read loop.
@@ -77,6 +78,7 @@ fn main_loop(buffer: Vec<u8>) {
         }
         // 2. V-Blank reached! Display the frame
         display_frame(&*bus.ppu);
+        // println!("{:?}", bus.ppu);
 
         // 3. Sleep to maintain original hardware speed
         let elapsed = last_frame_time.elapsed();

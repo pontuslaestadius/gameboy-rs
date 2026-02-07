@@ -5,6 +5,8 @@ mod common;
 
 use std::path::Path;
 
+use gameboy_rs::{mmu::Bus, ppu::Ppu};
+
 use crate::common::{DoctorEvaluator, RuntimeBuilder, RuntimeSession};
 
 // Helper to run the emulator in doctor mode
@@ -25,8 +27,12 @@ fn run_doctor_test(rom_id: &str, rom_name: &str) {
         golden_log
     );
 
+    let mut ppu = Ppu::new();
+    ppu.init_post_boot();
+
     let mut runtime: RuntimeSession<DoctorEvaluator> = RuntimeBuilder::new()
         .with_rom_path(Path::new(&rom_path))
+        .with_ppu(ppu)
         .with_evaluator(DoctorEvaluator::new(&golden_log))
         .build();
 

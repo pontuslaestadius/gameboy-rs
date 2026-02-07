@@ -73,7 +73,7 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
         .any(|window| window == needle)
 }
 
-pub fn scrape_test_result(ppu: &dyn Ppu) -> String {
+pub fn scrape_test_result(ppu: &Ppu) -> String {
     let mut lines = Vec::new();
 
     // Map is 32x32 tiles, but screen only shows 20x18

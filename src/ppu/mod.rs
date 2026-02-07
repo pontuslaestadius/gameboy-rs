@@ -1,34 +1,12 @@
 pub mod terminal;
 
+use crate::constants::*;
 use core::fmt;
-use std::hash::DefaultHasher;
-
 use log::{trace, warn};
 
 const OAM_SIZE: usize = 0xA0; // 160 bytes.
 
-pub trait Ppu {
-    /// Advances the internal state machine by a number of T-cycles.
-    /// Returns true if a V-Blank interrupt should be triggered.
-    fn tick(&mut self, cycles: u32) -> bool;
-
-    /// Read from PPU-owned memory (VRAM: 0x8000-0x9FFF, OAM: 0xFE00-0xFE9F, Registers: 0xFF40-0xFF4B)
-    fn read_byte(&self, addr: u16) -> u8;
-
-    /// Write to PPU-owned memory
-    fn write_byte(&mut self, addr: u16, val: u8);
-
-    /// Write directly to the OAM buffer.
-    fn write_oam(&mut self, index: usize, val: u8);
-
-    /// Returns the 160x144 pixel data.
-    /// Using u8 to represent the 4 shades (0-3).
-    fn get_frame_buffer(&self) -> &[u8; 23040];
-    fn get_dot_counter(&self) -> u32;
-    fn set_ly(&mut self, val: u8);
-}
-
-pub struct DummyPpu {
+pub struct Ppu {
     pub vram: [u8; 0x2000], // 8KB
     pub oam: [u8; OAM_SIZE],
     pub ly: u8,           // Current Scanline (0xFF44)
@@ -44,15 +22,16 @@ pub struct DummyPpu {
     pub lyc: u8,
     pub obp0: u8,
     pub obp1: u8,
+    pub stat_line: bool,
 }
 
-impl Default for DummyPpu {
+impl Default for Ppu {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DummyPpu {
+impl Ppu {
     pub fn new() -> Self {
         Self {
             vram: [0; 0x2000],
@@ -70,6 +49,7 @@ impl DummyPpu {
             lyc: 0,
             obp0: 0,
             obp1: 0,
+            stat_line: false,
         }
     }
 
@@ -82,7 +62,55 @@ impl DummyPpu {
         todo!("");
     }
 
-    fn update_lyc(&mut self) {
+    pub fn init_post_boot(&mut self) {
+        // LCDC: 0x91 (LCD ON, Window Tile Map 0x9800, BG/Window Tile Data 0x8000, BG ON)
+        self.write_byte(ADDR_PPU_LCDC, 0x91);
+
+        // STAT: 0x85 (Bit 7 always 1, Bit 2 LYC=LY coincidence, Bit 0-1 Mode 1 V-Blank)
+        // Note: Some logs expect 0x80 or 0x82, but 0x85 is common post-bootrom.
+        self.stat = 0x85;
+
+        // LY: 0x00
+        self.ly = 0x00;
+
+        // LYC: 0x00
+        self.lyc = 0x00;
+
+        // Palettes: Standard mapping (3, 2, 1, 0)
+        self.write_byte(ADDR_PPU_BGP, 0xFC);
+        self.write_byte(ADDR_PPU_OBP0, 0xFF);
+        self.write_byte(ADDR_PPU_OBP1, 0xFF);
+
+        // Scroll positions
+        self.scy = 0x00;
+        self.scx = 0x00;
+        self.wy = 0x00;
+        self.wx = 0x00;
+
+        // Internal counters
+        self.dot_counter = 0;
+        self.stat_line = false;
+    }
+
+    // Inside PPU tick
+    pub fn update_stat_interrupt(&mut self) -> bool {
+        let mode = self.stat & 0x03;
+
+        let lyc_int = (self.stat & 0x40) != 0 && (self.stat & 0x04) != 0;
+        let mode2_int = (self.stat & 0x20) != 0 && mode == 2;
+        let mode1_int = (self.stat & 0x10) != 0 && mode == 1;
+        let mode0_int = (self.stat & 0x08) != 0 && mode == 0;
+
+        let current_signal = lyc_int || mode2_int || mode1_int || mode0_int;
+
+        // Detect Rising Edge
+        let interrupt_triggered = !self.stat_line && current_signal;
+        self.stat_line = current_signal;
+
+        interrupt_triggered
+    }
+
+    pub fn update_lyc(&mut self) {
         // 1. Check if LY matches LYC
         if self.ly == self.lyc {
             // 2. Set Bit 2 of STAT (The LYC == LY flag)
@@ -109,55 +137,61 @@ impl DummyPpu {
         // you would trigger the LCD_STAT interrupt.
     }
 
-    fn render_line(&mut self) {
-        let line = self.ly as usize;
+    pub fn render_line(&mut self) {
+        let line = self.ly;
         if line >= 144 {
             return;
         }
 
-        // LCDC Bit 3: Background Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
+        // 1. Calculate the actual vertical position in the 256px background map
+        let y_pos = line.wrapping_add(self.scy);
+        let tile_row = (y_pos / 8) as u16;
+        let pixel_row = (y_pos % 8) as u16;
+
         let tile_map_base = if (self.lcdc & 0x08) != 0 {
             0x9C00
         } else {
             0x9800
         };
-
-        // LCDC Bit 4: Background & Window Tile Data Select (0=8800-97FF, 1=8000-8FFF)
         let bit4 = (self.lcdc & 0x10) != 0;
+        let bit4 = true; // Force unsigned mode
 
-        for x in 0..160 {
-            let tile_col = x / 8;
-            let tile_row = line / 8;
-            let tile_index_addr = tile_map_base + (tile_row as u16 * 32) + tile_col as u16;
+        for x in 0..160u8 {
+            // 2. Calculate the actual horizontal position in the 256px map
+            let x_pos = x.wrapping_add(self.scx);
+            let tile_col = (x_pos / 8) as u16;
+            let pixel_col = (x_pos % 8) as u32;
+
+            // 3. Find the tile ID in the map
+            let tile_index_addr = tile_map_base + (tile_row * 32) + tile_col;
             let tile_id = self.vram[(tile_index_addr - 0x8000) as usize];
 
-            // Calculate tile data address based on bit 4
+            // 4. Calculate tile data address (Signed vs Unsigned)
             let tile_addr = if bit4 {
-                // Unsigned mode: Base is 0x8000
                 0x8000 + (tile_id as u16 * 16)
             } else {
-                // Signed mode: Base is 0x9000, tile_id is i8
                 let offset = (tile_id as i8 as i16 * 16) as u16;
                 0x9000_u16.wrapping_add(offset)
             };
 
-            let pixel_row = (line % 8) as u16;
+            // 5. Fetch the two bytes for the specific row of the tile
             let addr = tile_addr + (pixel_row * 2);
-
             let byte1 = self.vram[(addr - 0x8000) as usize];
             let byte2 = self.vram[(addr + 1 - 0x8000) as usize];
 
-            let bit = 7 - (x % 8);
+            // 6. Extract the color index for the specific pixel
+            let bit = 7 - pixel_col;
             let color_idx = (((byte2 >> bit) & 1) << 1) | ((byte1 >> bit) & 1);
 
-            // Apply Background Palette (BGP - 0xFF47)
+            // 7. Apply Background Palette
             let color = (self.bgp >> (color_idx * 2)) & 0b11;
 
-            self.frame_buffer[line * 160 + x] = color;
+            // Store color (0-3) in frame buffer
+            self.frame_buffer[line as usize * 160 + x as usize] = color;
         }
     }
 
-    fn render_sprites(&mut self) {
+    pub fn render_sprites(&mut self) {
         let ly = self.ly;
         // Check LCDC Bit 1: Are sprites even enabled?
         if (self.lcdc & 0x02) == 0 {
@@ -247,118 +281,94 @@ impl DummyPpu {
     //         self.ppu.write_byte(0xFE00 + i, data);
     //     }
     // }
-}
-
-impl fmt::Debug for DummyPpu {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mode = self.stat & 0x03;
-        let mode_str = match mode {
-            0 => "H-Blank",
-            1 => "V-Blank",
-            2 => "OAM Scan",
-            3 => "Drawing",
-            _ => "Unknown",
-        };
-
-        write!(
-            f,
-            "--- PPU State ---\n\
-             LY:   {:<3} (0x{:02X}) | LYC:  {:<3} (0x{:02X})\n\
-             DOTS: {:<3}            | STAT: 0x{:02X} ({})\n\
-             LCDC: 0x{:02X}         | BGP:  0x{:02X}\n\
-             SCX:  0x{:02X}         | SCY:  0x{:02X}\n\
-             WX:   0x{:02X}         | WY:   0x{:02X}\n\
-             OBP0: 0x{:02X}         | OBP1: 0x{:02X}\n\
-             -----------------",
-            self.ly,
-            self.ly,
-            self.lyc,
-            self.lyc,
-            self.dot_counter,
-            self.stat,
-            mode_str,
-            self.lcdc,
-            self.bgp,
-            self.scx,
-            self.scy,
-            self.wx,
-            self.wy,
-            self.obp0,
-            self.obp1
-        )
-    }
-}
-
-impl Ppu for DummyPpu {
-    fn set_ly(&mut self, val: u8) {
+    pub fn set_ly(&mut self, val: u8) {
         self.ly = val;
     }
 
-    fn get_dot_counter(&self) -> u32 {
+    pub fn get_dot_counter(&self) -> u32 {
         self.dot_counter
     }
 
-    fn write_oam(&mut self, addr: usize, val: u8) {
+    pub fn write_oam(&mut self, addr: usize, val: u8) {
         // debug_assert!(addr > OAM_SIZE, "Out of bound write_oam");
         self.oam[addr] = val;
     }
-    fn get_frame_buffer(&self) -> &[u8; 23040] {
+    pub fn get_frame_buffer(&self) -> &[u8; 23040] {
         &self.frame_buffer
     }
-    fn tick(&mut self, cycles: u32) -> bool {
+
+    pub fn tick(&mut self, cycles: u32) -> (bool, bool) {
         if !self.lcd_enabled() {
-            return false;
+            trace!("ppu timer tick ignored, LCD disabled");
+            return (false, false);
         }
 
-        self.dot_counter += cycles;
+        let mut vblank_triggered = false;
+        let mut stat_triggered = false;
 
-        if self.dot_counter >= 456 {
-            self.dot_counter -= 456;
-            self.ly = (self.ly + 1) % 154;
+        for _ in 0..cycles {
+            self.dot_counter += 1;
 
-            // Check for LY == LYC and update STAT bit 2 here
-            self.update_lyc();
-        }
+            // --- 1. Line Timing ---
+            if self.dot_counter >= 456 {
+                self.dot_counter = 0;
+                self.ly = (self.ly + 1) % 154;
+                self.update_lyc(); // Update Bit 2 of STAT
 
-        // Determine mode based on current LY and dot_counter
-        let new_mode = if self.ly >= 144 {
-            1 // V-Blank
-        } else {
-            match self.dot_counter {
-                0..=79 => 2,   // OAM Search
-                80..=251 => 3, // Data Transfer
-                _ => 0,        // H-Blank
+                if self.ly == 144 {
+                    vblank_triggered = true;
+                }
             }
-        };
 
-        // Only call set_mode if the mode actually changed
-        if (self.stat & 0x03) != new_mode {
-            self.set_mode(new_mode);
+            // --- 2. Mode Determination ---
+            let new_mode = if self.ly >= 144 {
+                1 // V-Blank
+            } else {
+                match self.dot_counter {
+                    0..=79 => 2,   // OAM Search
+                    80..=251 => 3, // Data Transfer (Approx)
+                    _ => 0,        // H-Blank
+                }
+            };
+
+            let old_mode = self.stat & 0x03;
+            if old_mode == 3 && new_mode == 0 {
+                self.render_line();
+            }
+
+            // --- 3. STAT Mode Update ---
+            // Only update bits 0-1
+            self.stat = (self.stat & !0x03) | (new_mode & 0x03);
+
+            // --- 4. STAT Interrupt (Rising Edge) ---
+            if self.update_stat_interrupt() {
+                stat_triggered = true;
+            }
         }
-        new_mode == 1
+
+        (vblank_triggered, stat_triggered)
     }
 
-    fn read_byte(&self, addr: u16) -> u8 {
-        // info!("ppu: read_byte: addr: {:04X}, val: {:02X}", addr, val);
+    pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize],
             0xFE00..=0xFE9F => self.oam[(addr - 0xFE00) as usize],
-            0xFF40 => self.lcdc,
-            0xFF41 => self.stat,
-            0xFF42 => self.scy,
-            0xFF43 => self.scx,
-            0xFF44 => self.ly, // This is the one the CPU polls most often
-            0xFF45 => self.lyc,
-            0xFF47 => self.bgp,
-            0xFF48 => self.obp0,
-            0xFF49 => self.obp1,
-            0xFF4A => self.wy,
-            0xFF4B => self.wx,
+            ADDR_PPU_LCDC => self.lcdc,
+            ADDR_PPU_STAT => self.stat,
+            ADDR_PPU_SCY => self.scy,
+            ADDR_PPU_SCX => self.scx,
+            ADDR_PPU_LY => self.ly, // This is the one the CPU polls most often
+            ADDR_PPU_LYC => self.lyc,
+            ADDR_PPU_BGP => self.bgp,
+            ADDR_PPU_OBP0 => self.obp0,
+            ADDR_PPU_OBP1 => self.obp1,
+            ADDR_PPU_WY => self.wy,
+            ADDR_PPU_WX => self.wx,
             _ => 0xFF, // Default for unmapped IO
         }
     }
 
-    fn write_byte(&mut self, addr: u16, val: u8) {
+    pub fn write_byte(&mut self, addr: u16, val: u8) {
         // info!("ppu: write_byte: addr: {:04X}, val: {:02X}", addr, val);
         match addr {
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize] = val,
@@ -386,11 +396,16 @@ impl Ppu for DummyPpu {
                 }
             }
             0xFF41 => {
-                // Only bits 3-6 are writable (Interrupt selection bits)
-                // Bits 0-2 are read-only status; Bit 7 is unused (always 1)
-                let mask = 0b0111_1000;
-                self.stat = (val & mask) | (self.stat & !mask) | 0x80;
+                // Bits 0, 1, 2 are Read-Only (Mode and LYC=LY flag)
+                // Bit 7 is unused (usually returns 1)
+                // Only bits 3, 4, 5, 6 are writable (Interrupt enabled)
+                let writable_mask = 0b0111_1000;
+                self.stat = (val & writable_mask) | (self.stat & !writable_mask) | 0x80;
+
+                // Crucial: A write to STAT can trigger an interrupt if a condition is met
+                self.update_stat_interrupt();
             }
+
             0xFF42 => self.scy = val,
             0xFF43 => self.scx = val,
             0xFF44 => self.ly = 0, // Writing to LY usually resets it on real hardware
@@ -406,5 +421,40 @@ impl Ppu for DummyPpu {
                 warn!("PPU: Unhandled Write_byte, addr: {addr:04X}, val: {val:02X}");
             }
         }
+    }
+}
+
+impl fmt::Debug for Ppu {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mode = self.stat & 0x03;
+        let mode_str = match mode {
+            0 => "H-Blank",
+            1 => "V-Blank",
+            2 => "OAM Scan",
+            3 => "Drawing",
+            _ => "Unknown",
+        };
+
+        write!(
+            f,
+            // This may look odd here, but in the terminal they are aligned.
+            "--- PPU State ---------------------------------------------\n\
+             LY:   0x{:02X} | LYC:  0x{:02X} | DOTS: 0x{:02X} | STAT: 0x{:02X} ({})\n\
+             LCDC: 0x{:02X} | BGP:  0x{:02X} | SCX:  0x{:02X} | SCY:  0x{:02X}\n\
+             WX:   0x{:02X} | WY:   0x{:02X} | OBP0: 0x{:02X} | OBP1: 0x{:02X}",
+            self.ly,
+            self.lyc,
+            self.dot_counter,
+            self.stat,
+            mode_str,
+            self.lcdc,
+            self.bgp,
+            self.scx,
+            self.scy,
+            self.wx,
+            self.wy,
+            self.obp0,
+            self.obp1
+        )
     }
 }

@@ -1,11 +1,16 @@
 use std::path::PathBuf;
 
 use clap::Parser;
+use log::Level;
 
 /// Game Boy Emulator
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
+    /// Log level
+    #[arg(long)]
+    pub level: Option<Level>,
+
     /// Name of the person to greet
     #[arg(long)]
     pub load_rom: PathBuf,

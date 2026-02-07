@@ -3,7 +3,7 @@ use crate::ppu::Ppu;
 const DISPLAY_HEIGHT: usize = 144;
 const DISPLAY_WIDTH: usize = 160;
 
-pub fn display_frame(ppu: &dyn Ppu) {
+pub fn display_frame(ppu: &Ppu) {
     let buffer = ppu.get_frame_buffer();
     let mut output = String::with_capacity(DISPLAY_WIDTH * DISPLAY_HEIGHT);
 

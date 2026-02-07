@@ -4,12 +4,14 @@ use gameboy_rs::{
     cartridge::{self, Headers},
     cpu::Cpu,
     mmu::Bus,
+    ppu::Ppu,
 };
 
 use crate::common::{EvaluationSpec, RuntimeSession};
 
 pub struct RuntimeBuilder<E: EvaluationSpec> {
     cpu: Option<Cpu>,
+    ppu: Option<Ppu>,
     rom_data: Option<Vec<u8>>,
     evaluator: E,
 }
@@ -20,6 +22,7 @@ impl RuntimeBuilder<NoopEvaluator> {
             cpu: None,
             rom_data: None,
             evaluator: NoopEvaluator,
+            ppu: None,
         }
     }
 }
@@ -29,6 +32,11 @@ impl<E: EvaluationSpec> RuntimeBuilder<E> {
     pub fn with_rom_path(self, rom_path: &Path) -> Self {
         let buffer = cartridge::load_rom(rom_path).unwrap();
         self.with_rom_data(buffer)
+    }
+
+    pub fn with_ppu(mut self, ppu: Ppu) -> Self {
+        self.ppu = Some(ppu);
+        self
     }
 
     /// Load the ROM buffer and parse headers
@@ -49,6 +57,7 @@ impl<E: EvaluationSpec> RuntimeBuilder<E> {
             cpu: self.cpu,
             rom_data: self.rom_data,
             evaluator: eval,
+            ppu: self.ppu,
         }
     }
 
@@ -57,7 +66,10 @@ impl<E: EvaluationSpec> RuntimeBuilder<E> {
             .rom_data
             .expect("ROM data is required to build a session");
         let headers = Headers::new(&rom);
-        let memory = Bus::new(rom);
+        let mut memory = Bus::new(rom);
+        if let Some(ppu) = self.ppu {
+            memory.ppu = Box::new(ppu);
+        };
         let cpu = self.cpu.unwrap_or_else(Cpu::new);
 
         RuntimeSession {

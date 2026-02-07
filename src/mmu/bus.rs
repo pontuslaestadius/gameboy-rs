@@ -24,12 +24,7 @@ use log::{debug, info, trace};
 // use std::io::Write;
 
 use crate::{
-    apu::Apu,
-    constants::*,
-    input::InputDevice,
-    mmu::memory_trait::Memory,
-    ppu::{DummyPpu, Ppu},
-    timer::Timer,
+    apu::Apu, constants::*, input::InputDevice, mmu::memory_trait::Memory, ppu::Ppu, timer::Timer,
 };
 
 /// 64 Kb - The standard Game Boy address space
@@ -44,7 +39,7 @@ pub struct Bus<I: InputDevice + Default> {
     pub data: Box<[u8; MEMORY_SIZE]>,
     // total_cycles: u64,
     // TODO: make generic.
-    pub ppu: Box<DummyPpu>,
+    pub ppu: Box<Ppu>,
     input: I,
 
     pub joypad_sel: u8,
@@ -70,11 +65,13 @@ impl<I: InputDevice + Default> Bus<I> {
             copy_len
         );
 
+        let ppu = Ppu::new();
+        // ppu.init_post_boot();
         Bus {
             timer: Timer::new(),
             // rom_size,
             data: buffer,
-            ppu: Box::new(DummyPpu::new()),
+            ppu: Box::new(ppu),
             joypad_sel: 0xFF,
             input: I::default(),
             serial_buffer: Vec::new(),
@@ -245,8 +242,7 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
             self.write_if(interrupt_flags | 0b100);
         }
 
-        // You would also tick your PPU (Graphics) here later
-        if self.ppu.tick(cycles.into()) {
+        if let (true, _) = self.ppu.tick(cycles.into()) {
             trace!("tick_components: ppu triggered V-Blank");
             // Manually trigger the V-Blank bit in the IF register (0xFF0F)
             let current_if = self.read_if();
