@@ -186,3 +186,28 @@ fn diagnostic_timer_signal() {
 
     assert!(external_if_reg & 0x04 != 0, "IF register bit 2 is NOT set");
 }
+
+#[test]
+fn test_oam_access_during_mode2() {
+    let mut bus = bus();
+
+    // 1. Advance PPU to Mode 2 (LY 0, Dot 0-79)
+    bus.ppu.ly = 0;
+    bus.ppu.dot_counter = 10;
+    assert_eq!(bus.ppu.get_mode(), 2);
+
+    // 2. Attempt to write to OAM
+    let target_addr = 0xFE00;
+    let test_val = 0xAA;
+    bus.write_byte(target_addr, test_val);
+
+    // PROOF OF ERROR: On real hardware, OAM is locked during Mode 2.
+    // The CPU should either read 0xFF or the write should be ignored/corrupted.
+    let read_val = bus.read_byte(target_addr);
+
+    // If your code returns 0xAA, you are allowing "Illegal" access.
+    assert_eq!(
+        read_val, 0xFF,
+        "OAM should be inaccessible/locked during Mode 2"
+    );
+}

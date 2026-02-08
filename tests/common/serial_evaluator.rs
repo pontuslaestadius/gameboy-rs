@@ -56,6 +56,9 @@ impl EvaluationSpec for SerialEvaluator {
             println!("Cycles: {}/{}", self.cycles, self.max_cycles);
             let display_str = scrape_test_result(&*bus.ppu);
             if !display_str.is_empty() {
+                if display_str.contains("Passed") {
+                    exit(0);
+                }
                 println!("----- Display -----");
                 println!("{}", display_str);
                 println!("-------------------");

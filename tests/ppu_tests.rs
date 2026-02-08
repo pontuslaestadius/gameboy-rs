@@ -310,3 +310,29 @@ fn test_stat_write_does_not_double_trigger() {
         "Writing to STAT caused a duplicate interrupt (Edge-trigger reset error)"
     );
 }
+
+#[test]
+fn test_ppu_mode_transitions() {
+    let mut ppu = Ppu::new();
+
+    // Test V-Blank
+    ppu.ly = 144;
+    assert_eq!(ppu.get_mode(), 1, "Should be in Mode 1 during V-Blank");
+
+    // Test OAM Search
+    ppu.ly = 0;
+    ppu.dot_counter = 40;
+    assert_eq!(
+        ppu.get_mode(),
+        2,
+        "Should be in Mode 2 during start of line"
+    );
+
+    // Test H-Blank
+    ppu.dot_counter = 400;
+    assert_eq!(
+        ppu.get_mode(),
+        0,
+        "Should be in Mode 0 at the end of a line"
+    );
+}

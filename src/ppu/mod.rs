@@ -53,6 +53,33 @@ impl Ppu {
         }
     }
 
+    pub fn get_mode(&self) -> u8 {
+        // Mode 1 (V-Blank) takes priority if LY is in the V-Blank range
+        if self.ly >= 144 {
+            return 1;
+        }
+
+        // Within a visible scanline (0-143)
+        if self.dot_counter < 80 {
+            // OAM Search: PPU is scanning OAM for sprites on the current line
+            2
+        } else if self.dot_counter < 80 + 172 {
+            // Drawing: PPU is pushing pixels to the LCD
+            // Note: On real hardware, this duration varies, but 172 is the minimum.
+            3
+        } else {
+            // H-Blank: Line is finished, waiting for the next scanline
+            0
+        }
+    }
+
+    /// Helper to synchronize the STAT register with the current state
+    pub fn update_stat_mode(&mut self) {
+        let mode = self.get_mode();
+        // Clear bottom 2 bits and set the new mode
+        self.stat = (self.stat & !0x03) | (mode & 0x03);
+    }
+
     pub fn enable_ldc(&mut self) {
         self.write_byte(ADDR_PPU_LCDC, 0x80);
     }
@@ -359,7 +386,17 @@ impl Ppu {
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x8000..=0x9FFF => self.vram[(addr - 0x8000) as usize],
-            0xFE00..=0xFE9F => self.oam[(addr - 0xFE00) as usize],
+            0xFE00..=0xFE9F => {
+                // Requires a mutable reference due to OAM corrupt gameboy hardware bug.
+                // https://gbdev.io/pandocs/OAM_Corruption_Bug
+                // TODO:
+                if self.get_mode() == 2 {
+                    // OAM corruption bug.
+                    // This is the simplest, but it's not accurate.
+                    return 0xFF;
+                }
+                self.oam[(addr - 0xFE00) as usize]
+            }
             ADDR_PPU_LCDC => self.lcdc,
             ADDR_PPU_STAT => self.stat,
             ADDR_PPU_SCY => self.scy,
