@@ -1284,3 +1284,59 @@ fn test_lcd_on_timing() {
         "After 80 cycles, LCD should have transitioned to Mode 3"
     );
 }
+
+#[test]
+fn test_interrupt_acknowledgment() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // 1. Setup: Enable V-Blank interrupt
+    bus.write_ie(0x01); //  V-Blank
+    cpu.ime = true;
+
+    // 2. Mock a V-Blank request from the PPU
+    let mut if_val = bus.read_if();
+    if_val |= 0x01;
+    bus.write_byte(0xFF0F, if_val);
+
+    // 3. Execute one CPU cycle/step where the interrupt should be handled
+    cpu.step(&mut bus);
+
+    // 4. Assertions
+    // The PC should now be at the V-Blank vector
+    assert_eq!(cpu.pc, 0x0040, "CPU failed to jump to V-Blank vector");
+
+    // The IME should be disabled (Game Boy hardware disables IME on service)
+    assert!(!cpu.ime, "IME should be disabled after servicing interrupt");
+
+    // PROOF OF ERROR: The IF bit for V-Blank must be cleared by the hardware
+    let final_if = bus.read_if();
+    assert_eq!(
+        final_if & 0x01,
+        0,
+        "IF Bit 0 was not cleared upon entering the ISR"
+    );
+}
+
+#[test]
+fn test_interrupt_storm_prevention() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // Setup state where Mode 2 is active and interrupt is enabled
+    bus.ppu.lcdc = 0x80;
+    bus.ppu.stat = 0x20; // Mode 2 int enabled
+    cpu.ime = true;
+    bus.write_byte(0xFFFF, 0x01 | 0x02); // Enable V-Blank and STAT ints
+
+    // Execute 1000 cycles
+    for _ in 0..1000 {
+        cpu.step(&mut bus);
+    }
+
+    // PROOF OF ERROR: In a storm, the CPU will have spent 100% of its time
+    // at the interrupt vector (0x0040 or 0x0048) and will have made
+    // almost zero progress in the actual game code.
+    assert!(
+        cpu.pc > 0x0100,
+        "CPU is trapped in an interrupt storm and cannot progress past the vectors"
+    );
+}

@@ -53,6 +53,10 @@ impl Ppu {
         }
     }
 
+    pub fn enable_ldc(&mut self) {
+        self.write_byte(ADDR_PPU_LCDC, 0x80);
+    }
+
     pub fn lcd_enabled(&self) -> bool {
         // Bit 7 controls the LCD power
         (self.lcdc & 0x80) != 0
@@ -106,6 +110,9 @@ impl Ppu {
         // Detect Rising Edge
         let interrupt_triggered = !self.stat_line && current_signal;
         self.stat_line = current_signal;
+        // println!(
+        //     "update_stat_interrupt: mode: {mode}, lyc_int: {lyc_int}, mode2_int: {mode2_int}, mode1_int: {mode1_int}, mode0_int: {mode0_int}, current_signal: {current_signal}, interrupt_triggered: {interrupt_triggered}"
+        // );
 
         interrupt_triggered
     }
@@ -154,7 +161,7 @@ impl Ppu {
             0x9800
         };
         let bit4 = (self.lcdc & 0x10) != 0;
-        let bit4 = true; // Force unsigned mode
+        // let bit4 = true; // Force unsigned mode
 
         for x in 0..160u8 {
             // 2. Calculate the actual horizontal position in the 256px map

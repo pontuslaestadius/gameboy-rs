@@ -93,13 +93,7 @@ impl DoctorEvaluator {
     // }
     pub fn on_mismatch(&self, expected: CpuSnapshot, received: CpuSnapshot) {
         dump_log();
-
-        println!("ERROR: Mismatch CPU state.");
-
-        println!();
-        // println!(
-        //     "LINE-- | AA | FFFF | BB | CC | DD | EE | HH | LL | SP-- | PC-- | PCMEM +1 +2 +3 +4"
-        // );
+        println!("--- Mismatch CPU state ------------------------------");
         let len = self.history.get_history().len();
         for (i, entry) in self.history.get_history().iter().enumerate() {
             if i == len - 1 {

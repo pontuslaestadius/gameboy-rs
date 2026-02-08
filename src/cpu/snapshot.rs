@@ -1,7 +1,7 @@
 use crate::{
     constants::*,
     cpu::Cpu,
-    input::DummyInput,
+    input::{DummyInput, InputDevice},
     mmu::{Bus, Memory},
 };
 
@@ -28,7 +28,7 @@ pub struct StateMismatch {
 }
 
 impl CpuSnapshot {
-    pub fn from_cpu(cpu: &Cpu, bus: &Bus<DummyInput>) -> Self {
+    pub fn from_cpu<I: InputDevice + Default>(cpu: &Cpu, bus: &Bus<I>) -> Self {
         CpuSnapshot {
             a: cpu.a,
             f: cpu.f,

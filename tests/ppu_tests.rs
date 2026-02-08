@@ -219,7 +219,7 @@ fn test_ppu_stat_interrupt_edge_trigger() {
 fn test_ppu_lyc_flag_timing() {
     let mut ppu = ppu();
     ppu.write_byte(ADDR_PPU_LYC, 1);
-    ppu.write_byte(ADDR_PPU_LCDC, 0x80);
+    ppu.enable_ldc();
 
     // End of line 0
     ppu.tick(455);
@@ -236,5 +236,77 @@ fn test_ppu_lyc_flag_timing() {
         ppu.read_byte(ADDR_PPU_STAT) & 0x04,
         0x04,
         "LYC flag should be 1 (LY=1, LYC=1)"
+    );
+}
+
+#[test]
+fn test_stat_interrupt_edge_trigger_behavior() {
+    let mut ppu = Ppu::new();
+    ppu.enable_ldc();
+
+    // 1. Setup: Enable Mode 2 (OAM) Interrupt in STAT
+    ppu.stat = 0x20; // Bit 5 is Mode 2 Interrupt Source
+    ppu.ly = 0;
+    ppu.dot_counter = 0; // Mode will be 2
+
+    // 2. First tick: Should trigger an interrupt (False -> True)
+    let (_, stat_triggered) = ppu.tick(1);
+    assert!(
+        stat_triggered,
+        "STAT interrupt should trigger on initial match"
+    );
+
+    // 3. Second tick: Mode is still 2, but no new interrupt should trigger
+    // PROOF OF ERROR: If this returns true, the PPU is spamming the CPU
+    let (_, stat_triggered_again) = ppu.tick(1);
+    assert!(
+        !stat_triggered_again,
+        "STAT interrupt should NOT trigger while condition is already met (Edge-trigger failure)"
+    );
+}
+
+#[test]
+fn test_ppu_initial_stat_interrupt_behavior() {
+    let mut ppu = Ppu::new();
+
+    // 1. Setup initial state WITHOUT calling init_post_boot or writing to LCDC yet
+    ppu.stat = 0x20; // Enable Mode 2 Interrupt
+    ppu.enable_ldc();
+
+    // Mode is 2 because ly=0 and dot_counter=0
+    // PROOF OF ERROR: If stat_line started as 'true', this first tick might fail
+    // to trigger because it doesn't see a "rising" edge.
+    let (_, stat_triggered) = ppu.tick(1);
+    assert!(
+        stat_triggered,
+        "PPU failed to trigger STAT interrupt on cold power-on"
+    );
+
+    // 2. Ensure it doesn't fire again immediately
+    let (_, stat_triggered_again) = ppu.tick(1);
+    assert!(
+        !stat_triggered_again,
+        "PPU spammed STAT interrupt after power-on"
+    );
+}
+
+#[test]
+fn test_stat_write_does_not_double_trigger() {
+    let mut ppu = Ppu::new();
+    ppu.enable_ldc();
+    ppu.write_byte(0xFF41, 0x20); // Enable Mode 2 interrupt
+
+    // 1. Trigger the first interrupt
+    let (_, triggered) = ppu.tick(1);
+    assert!(triggered);
+
+    // 2. Write to STAT again (perhaps changing other bits)
+    // This should NOT cause a new interrupt if we are still in Mode 2
+    ppu.write_byte(0xFF41, 0x20 | 0x40); // Enable LYC interrupt too
+
+    let (_, triggered_again) = ppu.tick(1);
+    assert!(
+        !triggered_again,
+        "Writing to STAT caused a duplicate interrupt (Edge-trigger reset error)"
     );
 }

@@ -77,8 +77,10 @@ fn main_loop(buffer: Vec<u8>) {
             }
         }
         // 2. V-Blank reached! Display the frame
-        display_frame(&*bus.ppu);
+        // display_frame(&*bus.ppu);
         // println!("{:?}", bus.ppu);
+        // println!("PC: {}", cpu.pc);
+        // println!("{}", cpu.take_snapshot(&bus).to_doctor_string());
 
         // 3. Sleep to maintain original hardware speed
         let elapsed = last_frame_time.elapsed();

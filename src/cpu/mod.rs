@@ -6,6 +6,7 @@ mod register;
 mod snapshot;
 mod step_flow_controller_enum;
 
+use crate::input::InputDevice;
 use crate::*;
 use crate::{input::DummyInput, mmu::Memory};
 pub use alu::{Alu, AluOutput};
@@ -279,7 +280,7 @@ impl Cpu {
         if let Some(code) = op {
             // info!("if: {}, ie: {}", bus.read_if(), bus.read_ie());
             // info!("{}", self);
-            // info!("Dispatching: {}, bytes: {}", code, code.bytes);
+            // println!("Dispatching: {}, bytes: {}", code, code.bytes);
             trace!("{}", code);
             let result = self.dispatch(code, bus);
             self.apply_flags(&code.flags, result);
@@ -588,7 +589,7 @@ impl Cpu {
         }
     }
 
-    pub fn take_snapshot(&self, bus: &Bus<DummyInput>) -> CpuSnapshot {
+    pub fn take_snapshot<I: InputDevice + Default>(&self, bus: &Bus<I>) -> CpuSnapshot {
         CpuSnapshot::from_cpu(self, bus)
     }
 }
