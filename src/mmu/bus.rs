@@ -20,7 +20,7 @@ FFFF	FFFF	Interrupt Enable register (IE)
 We make an abstraction, and don't store it 1-1.
 */
 
-use log::{debug, info, trace};
+use log::{debug, trace};
 // use std::io::Write;
 
 use crate::{
@@ -112,7 +112,8 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
         self.data[addr as usize]
     }
     fn read_byte(&self, addr: u16) -> u8 {
-        let val = match addr {
+        
+        match addr {
             // ROM: 0x0000..=0x7FFF
             ADDR_MEM_ROM_START..=ADDR_MEM_ROM_END => {
                 let b = self.data[addr as usize];
@@ -209,8 +210,7 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
                 trace!("read [{:#06X}] -> {:#04X} (DEFAULT)", addr, b);
                 b
             }
-        };
-        val
+        }
     }
 
     // Inside your Bus/Memory write logic

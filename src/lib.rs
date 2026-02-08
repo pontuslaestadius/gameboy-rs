@@ -13,7 +13,6 @@ pub mod utils;
 // use crate::cartridge::Headers;
 use crate::cpu::Cpu;
 use crate::input::RotaryInput;
-use crate::ppu::terminal::display_frame;
 
 use constants::*;
 use log::Level;
@@ -26,7 +25,7 @@ use std::path::PathBuf;
 use std::io::Write;
 use std::time::Instant;
 
-pub fn setup_logging(log_path: &Option<PathBuf>, level: Option<Level>) -> Result<(), io::Error> {
+pub fn setup_logging(log_path: &Option<PathBuf>, _level: Option<Level>) -> Result<(), io::Error> {
     let env = env_logger::Env::default().default_filter_or("info");
     let mut builder = env_logger::Builder::from_env(env);
     // 1. Set the format (Crucial for Gameboy Doctor)

@@ -16,6 +16,12 @@ pub struct Apu {
     registers: [u8; 0x30], // 0xFF10 to 0xFF3F
 }
 
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Apu {
     pub fn new() -> Self {
         Self {

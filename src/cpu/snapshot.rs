@@ -1,7 +1,7 @@
 use crate::{
     constants::*,
     cpu::Cpu,
-    input::{DummyInput, InputDevice},
+    input::InputDevice,
     mmu::{Bus, Memory},
 };
 
