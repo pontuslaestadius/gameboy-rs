@@ -312,6 +312,40 @@ fn test_stat_write_does_not_double_trigger() {
 }
 
 #[test]
+fn test_stat_line_rising_edge_logic() {
+    let mut ppu = Ppu::new();
+
+    // 1. Force state to Mode 2 with interrupt ENABLED
+    ppu.stat = 0x20; // Mode 2 source bit
+    ppu.ly = 0;
+    ppu.dot_counter = 0; // This makes get_mode() return 2
+
+    // 2. Initial state check: stat_line should start false
+    // First update: False -> True (SHOULD TRIGGER)
+    let triggered = ppu.update_stat_interrupt();
+    assert!(
+        triggered,
+        "Failed to trigger on initial Low -> High transition"
+    );
+    assert!(ppu.stat_line, "stat_line should now be true");
+
+    // 3. Second update: True -> True (SHOULD NOT TRIGGER)
+    let triggered_again = ppu.update_stat_interrupt();
+    assert!(
+        !triggered_again,
+        "Triggered on high-level instead of rising-edge"
+    );
+
+    // 4. Test "Reset": Mode 0 with no interrupt enabled
+    ppu.dot_counter = 400; // Mode 0
+    ppu.update_stat_interrupt();
+    assert!(
+        !ppu.stat_line,
+        "stat_line should be false after signal drops"
+    );
+}
+
+#[test]
 fn test_ppu_mode_transitions() {
     let mut ppu = Ppu::new();
 

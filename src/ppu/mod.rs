@@ -123,9 +123,8 @@ impl Ppu {
         self.stat_line = false;
     }
 
-    // Inside PPU tick
     pub fn update_stat_interrupt(&mut self) -> bool {
-        let mode = self.stat & 0x03;
+        let mode = self.get_mode();
 
         let lyc_int = (self.stat & 0x40) != 0 && (self.stat & 0x04) != 0;
         let mode2_int = (self.stat & 0x20) != 0 && mode == 2;
@@ -134,12 +133,12 @@ impl Ppu {
 
         let current_signal = lyc_int || mode2_int || mode1_int || mode0_int;
 
-        // Detect Rising Edge
-        let interrupt_triggered = !self.stat_line && current_signal;
+        // PRESERVE the edge detection logic:
+        // Trigger is true only if the signal IS high now but WAS NOT high before.
+        let interrupt_triggered = current_signal && !self.stat_line;
+
+        // NOW update the persistent state for the next cycle
         self.stat_line = current_signal;
-        // println!(
-        //     "update_stat_interrupt: mode: {mode}, lyc_int: {lyc_int}, mode2_int: {mode2_int}, mode1_int: {mode1_int}, mode0_int: {mode0_int}, current_signal: {current_signal}, interrupt_triggered: {interrupt_triggered}"
-        // );
 
         interrupt_triggered
     }
@@ -367,6 +366,7 @@ impl Ppu {
 
             let old_mode = self.stat & 0x03;
             if old_mode == 3 && new_mode == 0 {
+                // self.render_sprites();
                 self.render_line();
             }
 

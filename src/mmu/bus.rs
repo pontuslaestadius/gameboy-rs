@@ -112,7 +112,6 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
         self.data[addr as usize]
     }
     fn read_byte(&self, addr: u16) -> u8 {
-        
         match addr {
             // ROM: 0x0000..=0x7FFF
             ADDR_MEM_ROM_START..=ADDR_MEM_ROM_END => {
