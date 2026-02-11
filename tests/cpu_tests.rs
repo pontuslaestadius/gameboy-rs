@@ -1340,3 +1340,59 @@ fn test_interrupt_storm_prevention() {
         "CPU is trapped in an interrupt storm and cannot progress past the vectors"
     );
 }
+
+#[test]
+fn test_stat_interrupt_storm_prevention() {
+    let (mut cpu, mut bus) = bootstrap();
+
+    // --- SETUP FAKE ROM ---
+    // 1. The STAT Handler at 0x0048
+    bus.write_byte(0x0048, 0x3E);
+    bus.write_byte(0x0049, 0x20); // LD A, $20
+    bus.write_byte(0x004A, 0xE0);
+    bus.write_byte(0x004B, 0x41); // LDH ($41), A
+    bus.write_byte(0x004C, 0xD9); // RETI
+
+    // 2. The Entry Point at 0x0100
+    bus.write_byte(0x0100, 0xFB); // EI
+    bus.write_byte(0x0101, 0x18);
+    bus.write_byte(0x0102, 0xFE); // JR -2 (Loop at 0x101)
+
+    // 3. Initialize CPU State
+    cpu.pc = 0x0100;
+    cpu.ime = false;
+    bus.write_byte(0xFFFF, 0x02); // Enable STAT interrupt in IE register
+    bus.ppu.enable_ldc();
+
+    // --- EXECUTION ---
+    let mut main_loop_hits = 0;
+    let mut handler_hits = 0;
+
+    // Run for enough cycles to trigger many interrupts
+    for _ in 0..10000 {
+        // Trigger a Mode 2 condition manually for the test
+        bus.ppu.ly = 0;
+        bus.ppu.dot_counter = 10; // PPU Mode is now 2
+
+        let cycles = cpu.step(&mut bus);
+        bus.tick_components(cycles);
+
+        if cpu.pc == 0x0101 {
+            main_loop_hits += 1;
+        } else if cpu.pc == 0x0048 {
+            handler_hits += 1;
+        }
+    }
+
+    // --- VERIFICATION ---
+    // If the logic is correct, the CPU should spend most of its time
+    // in the main loop and only visit the handler occasionally.
+    // If bugged, main_loop_hits will be 0 or 1.
+    assert!(handler_hits > 0, "Interrupt never fired at all");
+    assert!(
+        main_loop_hits > handler_hits,
+        "STORM DETECTED: CPU spent more time in handler ({}) than main loop ({})",
+        handler_hits,
+        main_loop_hits
+    );
+}

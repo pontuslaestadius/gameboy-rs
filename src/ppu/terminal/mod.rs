@@ -3,6 +3,29 @@ use crate::ppu::Ppu;
 const DISPLAY_HEIGHT: usize = 144;
 const DISPLAY_WIDTH: usize = 160;
 
+fn clear_terminal() {
+    print!("{}[2J", 27 as char);
+}
+
+pub fn display_buffer(ppu: &Ppu) {
+    let buffer = ppu.get_frame_buffer();
+
+    clear_terminal();
+
+    // We step by 2 on Y because one character represents two vertical pixels
+    for y in 0..DISPLAY_HEIGHT {
+        for x in 0..DISPLAY_WIDTH {
+            let value = buffer[y * 160 + x];
+            if value == 0 {
+                print!("   ");
+            } else {
+                print!("{:0X} ", value);
+            }
+        }
+        println!("");
+    }
+}
+
 pub fn display_frame(ppu: &Ppu) {
     let buffer = ppu.get_frame_buffer();
     let mut output = String::with_capacity(DISPLAY_WIDTH * DISPLAY_HEIGHT);
@@ -29,5 +52,9 @@ pub fn display_frame(ppu: &Ppu) {
         }
         output.push('\n');
     }
+    output.push_str("\x1B[H");
+    // Debugging footer.
+    // output.push_str("Footer");
+    // output.push('\n');
     print!("{}", output);
 }

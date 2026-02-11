@@ -10,12 +10,12 @@ This emulator is not focused on performance or commercial use — it is primaril
 
 * ✅ LR35902 (Game Boy CPU) instruction decoding & execution
 * ✅ CPU registers, flags, and basic timing model
-* ⏳ Memory map (ROM, RAM, VRAM, HRAM)
-* ⏳ Cartridge loading (MBC0 initially)
+* ✅ Memory map (ROM, RAM, VRAM, HRAM)
+* ✅ Cartridge loading (MBC0 initially)
 * ⏳ PPU (graphics) emulation
 * ⏳ LCD modes & scanline timing
 * ⏳ Input (joypad)
-* ⏳ Timers & interrupts
+* ✅ Timers & interrupts
 * ⏳ Audio Processing Unit (APU)
 * ⏳ Save files & battery‑backed RAM
 

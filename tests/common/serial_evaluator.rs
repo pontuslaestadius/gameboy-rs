@@ -18,7 +18,9 @@ impl SerialEvaluator {
             cycles: 0,
             // For debug: this may take ~10s.
             // For release: ~0.7s before timeout.
-            max_cycles: 10_000_000,
+            // Unfortunately, this should be ran in release mode
+            // Otherwise it would take ages.
+            max_cycles: 5_000_000,
         }
     }
 }
@@ -26,6 +28,16 @@ impl SerialEvaluator {
 impl EvaluationSpec for SerialEvaluator {
     fn evaluate(&mut self, _cpu: &Cpu, bus: &mut Bus<DummyInput>) -> bool {
         self.cycles += 1;
+        // Check the display buffer ever so often, it's a pricier comparison,
+        // so we only do it with some infrequency for performance.
+        if self.cycles % 100_000 == 0 {
+            let display_str = scrape_test_result(&*bus.ppu);
+            let bytes = display_str.as_bytes();
+            if contains_bytes(bytes, PASSED_STR) || contains_bytes(bytes, FAILED_STR) {
+                return false;
+            }
+        }
+
         if let Some(serial_buffer) = bus.read_if_dirty_serial_buffer() {
             let len = serial_buffer.len();
             if len > 5 {
@@ -59,9 +71,9 @@ impl EvaluationSpec for SerialEvaluator {
                 if display_str.contains("Passed") {
                     exit(0);
                 }
-                println!("----- Display -----");
+                println!("--- Display --------");
                 println!("{}", display_str);
-                println!("-------------------");
+                // println!("--------------------");
             }
             exit(1);
         }

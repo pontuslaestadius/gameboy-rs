@@ -225,61 +225,53 @@ impl Ppu {
     }
 
     pub fn render_sprites(&mut self) {
-        let ly = self.ly;
-        // Check LCDC Bit 1: Are sprites even enabled?
         if (self.lcdc & 0x02) == 0 {
             return;
         }
 
-        let mut sprites_on_line = 0;
+        // 1. Iterate backwards so index 0 (highest priority) is drawn last
+        for i in (0..40).rev() {
+            let base = i * 4;
+            let y_pos = self.oam[base].wrapping_sub(16);
+            let x_pos = self.oam[base + 1].wrapping_sub(8);
+            let tile_index = self.oam[base + 2];
+            let attrs = self.oam[base + 3];
 
-        // Iterate through all 40 entries in OAM
-        for i in 0..40 {
-            let i = i * 4;
-            let y_pos = self.oam[i].wrapping_sub(16);
-            let x_pos = self.oam[i + 1].wrapping_sub(8);
-            let tile_index = self.oam[i + 2];
-            let attrs = self.oam[i + 3];
+            let height = if (self.lcdc & 0x04) != 0 { 16 } else { 8 };
 
-            // 1. Is the sprite on this specific scanline? (8px height)
-            if ly >= y_pos && ly < y_pos.wrapping_add(8) {
-                sprites_on_line += 1;
-                if sprites_on_line > 10 {
-                    break;
-                } // Hardware limit
+            if self.ly >= y_pos && self.ly < y_pos.wrapping_add(height) {
+                let mut line_in_tile = self.ly.wrapping_sub(y_pos);
 
-                // 2. Determine which row of the tile to draw
-                let mut line_in_tile = ly.wrapping_sub(y_pos);
-
-                // Check for Vertical Flip (Bit 6 of Attributes)
+                // Vertical Flip
                 if (attrs & 0x40) != 0 {
-                    line_in_tile = 7 - line_in_tile;
+                    line_in_tile = (height - 1) - line_in_tile;
                 }
 
-                // 3. Fetch tile data from VRAM ($8000 range)
-                let data_addr = (tile_index as u16 * 16) + (line_in_tile as u16 * 2);
+                // 8x16 Mode adjustment: bit 0 of tile index is ignored
+                let final_tile_id = if height == 16 {
+                    tile_index & 0xFE
+                } else {
+                    tile_index
+                };
+                let data_addr = (final_tile_id as u16 * 16) + (line_in_tile as u16 * 2);
+
                 let byte1 = self.vram[data_addr as usize];
                 let byte2 = self.vram[(data_addr + 1) as usize];
 
                 for x_offset in 0..8 {
-                    let bit = 7 - x_offset;
-                    let mut pixel_x = x_offset;
-
-                    // Check for Horizontal Flip (Bit 5 of Attributes)
-                    if (attrs & 0x20) != 0 {
-                        pixel_x = 7 - x_offset;
-                    }
-
+                    let bit = if (attrs & 0x20) != 0 {
+                        x_offset
+                    } else {
+                        7 - x_offset
+                    };
                     let color_idx = ((byte1 >> bit) & 0x01) | (((byte2 >> bit) & 0x01) << 1);
 
-                    // 4. Transparency Check: Sprite Color 0 is ALWAYS transparent
                     if color_idx == 0 {
                         continue;
                     }
 
-                    let screen_x = x_pos.wrapping_add(pixel_x);
+                    let screen_x = x_pos.wrapping_add(x_offset);
                     if screen_x < 160 {
-                        // 5. Apply Palette (OBP0 or OBP1)
                         let palette = if (attrs & 0x10) != 0 {
                             self.obp1
                         } else {
@@ -287,33 +279,22 @@ impl Ppu {
                         };
                         let color = (palette >> (color_idx * 2)) & 0b11;
 
-                        // 6. Draw to buffer (Handle Priority Bit 7 if needed)
-                        self.frame_buffer[ly as usize * 160 + screen_x as usize] = color;
+                        // Sprite-to-BG Priority
+                        let buffer_idx = self.ly as usize * 160 + screen_x as usize;
+                        let bg_color_is_not_zero =
+                            self.frame_buffer[buffer_idx] != (self.bgp & 0x03);
+
+                        if (attrs & 0x80) != 0 && bg_color_is_not_zero {
+                            continue;
+                        }
+
+                        self.frame_buffer[buffer_idx] = color;
                     }
                 }
             }
         }
     }
 
-    // fn perform_dma(&mut self, source_high_byte: u8, bus: &dyn Memory) {
-    //     let base_addr = (source_high_byte as u16) << 8;
-    //     for i in 0..0xA0 {
-    //         let val = bus.read_byte(base_addr + i);
-    //         self.oam[i as usize] = val;
-    //     }
-    // }
-    // fn perform_dma(&mut self, val: u8) {
-    //     // The value written is the high byte of the source address (0xXX00)
-    //     let source_base = (val as u16) << 8;
-
-    //     for i in 0..0xA0 {
-    //         // 160 bytes (40 sprites * 4 bytes each)
-    //         // We read from the BUS because DMA can pull from ROM or RAM
-    //         let data = self.read_byte(source_base + i);
-    //         // We write directly to the PPU's OAM
-    //         self.ppu.write_byte(0xFE00 + i, data);
-    //     }
-    // }
     pub fn set_ly(&mut self, val: u8) {
         self.ly = val;
     }
@@ -366,8 +347,8 @@ impl Ppu {
 
             let old_mode = self.stat & 0x03;
             if old_mode == 3 && new_mode == 0 {
-                // self.render_sprites();
                 self.render_line();
+                self.render_sprites();
             }
 
             // --- 3. STAT Mode Update ---

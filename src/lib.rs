@@ -13,7 +13,7 @@ pub mod utils;
 // use crate::cartridge::Headers;
 use crate::cpu::Cpu;
 use crate::input::RotaryInput;
-use crate::ppu::terminal::display_frame;
+use crate::ppu::terminal::{display_buffer, display_frame};
 
 use constants::*;
 use log::Level;
@@ -78,6 +78,7 @@ fn main_loop(buffer: Vec<u8>) {
         }
         // 2. V-Blank reached! Display the frame
         display_frame(&*bus.ppu);
+        // display_buffer(&*bus.ppu);
         // println!("{:?}", bus.ppu);
         // println!("PC: {}", cpu.pc);
         // println!("{}", cpu.take_snapshot(&bus).to_doctor_string());

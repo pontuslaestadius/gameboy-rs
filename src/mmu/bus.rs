@@ -80,6 +80,23 @@ impl<I: InputDevice + Default> Bus<I> {
         }
     }
 
+    // fn write_stat(&mut self, val: u8) {
+    //     let old_signal = self.ppu.stat_line;
+
+    //     // Update the source bits (bits 3, 4, 5, 6)
+    //     self.ppu.stat = (self.ppu.stat & 0x07) | (val & 0xF8);
+
+    //     // Re-calculate based on new sources vs current PPU mode
+    //     let new_signal = self.ppu.calculate_stat_signal();
+
+    //     // EDGE DETECTION: Only request if it wasn't high already
+    //     if new_signal && !old_signal {
+    //         self.cpu.request_interrupt(Interrupt::Stat);
+    //     }
+
+    //     self.ppu.stat_line = new_signal;
+    // }
+
     // Also marks the bus as not-dirty.
     pub fn read_if_dirty_serial_buffer(&mut self) -> Option<&Vec<u8>> {
         if self.serial_buffer_dirty {
@@ -233,24 +250,33 @@ impl<I: InputDevice + Default> Memory for Bus<I> {
 
     /// Returns true if a V-Blank is triggered.
     fn tick_components(&mut self, cycles: u8) -> bool {
-        // trace!("tick components");
+        // 1. Timer Interrupt (Bit 2)
         if self.timer.tick(cycles) {
-            trace!("tick_components: timer interrup");
-            // Bit 2 is the Timer Interrupt
-            let interrupt_flags = self.read_if();
-            self.write_if(interrupt_flags | 0b100);
+            let current_if = self.read_if();
+            self.write_if(current_if | 0x04);
         }
 
-        if let (true, _) = self.ppu.tick(cycles.into()) {
-            trace!("tick_components: ppu triggered V-Blank");
-            // Manually trigger the V-Blank bit in the IF register (0xFF0F)
+        self.apu.tick(cycles as u32);
+
+        // 2. PPU Interrupts
+        // Assuming ppu.tick returns (vblank_triggered, stat_triggered)
+        let (vblank, stat) = self.ppu.tick(cycles.into());
+
+        if vblank {
             let current_if = self.read_if();
-            self.write_if(current_if | 0x01);
-            return true;
+            self.write_if(current_if | 0x01); // Bit 0: V-Blank
         }
-        false
+
+        if stat {
+            let current_if = self.read_if();
+            self.write_if(current_if | 0x02); // Bit 1: LCD STAT
+        }
+
+        vblank // Keep returning vblank if your main loop uses it for frame timing
     }
+
     fn write_byte(&mut self, addr: u16, val: u8) {
+        // println!("write_byte: 0x{:00X} = {}", addr, val);
         match addr {
             // ROM: 0x0000..=0x7FFF (Read Only)
             ADDR_MEM_ROM_START..=ADDR_MEM_ROM_END => {

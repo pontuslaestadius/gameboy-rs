@@ -15,7 +15,8 @@ pub const GAME_BOY_FILE_EXT: &str = "gb";
 pub const IF_ADDR: u16 = 0xFF0F;
 pub const IE_ADDR: u16 = 0xFFFF;
 
-pub const FRAME_DURATION: Duration = Duration::from_nanos(16_742_706); // ~59.7 fps
+pub const FRAME_DURATION: Duration = Duration::from_nanos(16_742_706 * 10); // ~59.7 fps
+// pub const FRAME_DURATION: Duration = Duration::from_nanos(16_742_706); // ~59.7 fps
 
 // --- System & Interrupts ---
 pub const ADDR_SYS_JOYP: u16 = 0xFF00; // Joypad selection and button status

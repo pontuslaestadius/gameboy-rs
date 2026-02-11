@@ -54,7 +54,12 @@ fn generate_rom_tests() {
 
         // This test is a bit annoying to cover, we have other coverage for it.
         // It won't finish on time out or other issues.
-        if name.contains("cpu_instrs_gb") {
+        // Sound tests are covered by the individual test cases.
+        if name.contains("cpu_instrs_gb")
+            || name.contains("dmg_sound_dmg_sound_gb")
+            || name.contains("cgb_sound_cgb_sound_gb")
+            || name.contains("oam_bug_oam_bug_gb")
+        {
             continue;
         }
 
